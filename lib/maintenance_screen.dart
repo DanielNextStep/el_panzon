@@ -3,10 +3,13 @@ import 'shared_styles.dart';
 
 class MaintenanceScreen extends StatefulWidget {
   final Map<String, bool> initialFlavors;
+  // --- AÑADIDO: Mapa de extras ---
+  final Map<String, bool> initialExtras;
 
   const MaintenanceScreen({
     super.key,
     required this.initialFlavors,
+    required this.initialExtras, // --- AÑADIDO: al constructor
   });
 
   @override
@@ -16,12 +19,15 @@ class MaintenanceScreen extends StatefulWidget {
 class _MaintenanceScreenState extends State<MaintenanceScreen> {
   // Mapa local para rastrear los cambios
   late Map<String, bool> _currentFlavors;
+  // --- AÑADIDO: Mapa local para extras ---
+  late Map<String, bool> _currentExtras;
 
   @override
   void initState() {
     super.initState();
-    // Copia el mapa inicial al estado local
+    // Copia los mapas iniciales al estado local
     _currentFlavors = Map<String, bool>.from(widget.initialFlavors);
+    _currentExtras = Map<String, bool>.from(widget.initialExtras);
   }
 
   @override
@@ -34,27 +40,62 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
             // --- Custom Neumorphic App Bar ---
             _buildAppBar(context),
 
-            // --- Lista de Sabores con Toggles ---
+            // --- ACTUALIZADO: Lista con secciones ---
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.all(20),
-                children: _currentFlavors.keys.map((String flavor) {
-                  return _buildFlavorToggleItem(
-                    flavor: flavor,
-                    isAvailable: _currentFlavors[flavor] ?? false,
-                    onChanged: (bool newValue) {
-                      setState(() {
-                        _currentFlavors[flavor] = newValue;
-                      });
-                    },
-                  );
-                }).toList(),
+                children: [
+                  // --- Sección de Tacos ---
+                  _buildSectionHeader('Tacos'),
+                  ..._currentFlavors.keys.map((String flavor) {
+                    return _buildFlavorToggleItem(
+                      flavor: flavor,
+                      isAvailable: _currentFlavors[flavor] ?? false,
+                      onChanged: (bool newValue) {
+                        setState(() {
+                          _currentFlavors[flavor] = newValue;
+                        });
+                      },
+                    );
+                  }).toList(),
+
+                  const SizedBox(height: 25), // Espaciador
+
+                  // --- Sección de Extras ---
+                  _buildSectionHeader('Extras'),
+                  ..._currentExtras.keys.map((String extra) {
+                    return _buildFlavorToggleItem(
+                      flavor: extra,
+                      isAvailable: _currentExtras[extra] ?? false,
+                      onChanged: (bool newValue) {
+                        setState(() {
+                          _currentExtras[extra] = newValue;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ],
               ),
             ),
 
             // --- Botón de Guardar ---
             _buildSaveButton(context),
           ],
+        ),
+      ),
+    );
+  }
+
+  // --- AÑADIDO: Widget de encabezado de sección ---
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: kAccentColor,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -139,8 +180,11 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
       padding: const EdgeInsets.all(28.0),
       child: GestureDetector(
         onTap: () {
-          // Devuelve el mapa actualizado a la pantalla anterior
-          Navigator.of(context).pop(_currentFlavors);
+          // --- ACTUALIZADO: Devuelve un mapa con ambas listas ---
+          Navigator.of(context).pop({
+            'flavors': _currentFlavors,
+            'extras': _currentExtras,
+          });
         },
         child: NeumorphicContainer(
           padding: const EdgeInsets.symmetric(vertical: 20),

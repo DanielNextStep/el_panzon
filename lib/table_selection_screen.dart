@@ -1,26 +1,30 @@
 import 'package:flutter/material.dart';
 import 'shared_styles.dart';
-import 'order_screen.dart';
+// --- ACTUALIZADO: Importa la nueva pantalla de gestión ---
+import 'table_order_manager.dart';
 
 class TableSelectionScreen extends StatelessWidget {
   // --- AÑADIDO: Recibe los sabores disponibles ---
   final Map<String, bool> availableFlavors;
+  // --- AÑADIDO: Recibe los extras disponibles ---
+  final Map<String, bool> availableExtras;
 
   const TableSelectionScreen({
     super.key,
     required this.availableFlavors, // --- AÑADIDO: al constructor
+    required this.availableExtras, // --- AÑADIDO: al constructor
   });
 
-  // Navega a la pantalla de orden pasando el número de mesa
-  void _navigateToOrderScreen(BuildContext context, int tableNumber) {
+  // --- ACTUALIZADO: Navega a la pantalla de GESTIÓN de mesa ---
+  void _navigateToTableManager(BuildContext context, int tableNumber) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => OrderScreen(
-          orderType: 'Para comer aquí',
+        // --- ACTUALIZADO: Ahora va a TableOrderManagerScreen ---
+        builder: (context) => TableOrderManagerScreen(
           tableNumber: tableNumber,
-          // --- AÑADIDO: Pasa los sabores a la pantalla de orden ---
           availableFlavors: availableFlavors,
+          availableExtras: availableExtras,
         ),
       ),
     );
@@ -54,7 +58,8 @@ class TableSelectionScreen extends StatelessWidget {
                       context: context,
                       tableNumber: tableNumber,
                       onPressed: () {
-                        _navigateToOrderScreen(context, tableNumber);
+                        // --- ACTUALIZADO: Llama a la nueva función ---
+                        _navigateToTableManager(context, tableNumber);
                       },
                     );
                   },

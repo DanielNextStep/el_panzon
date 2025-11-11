@@ -47,6 +47,15 @@ class _HomeScreenState extends State<HomeScreen> {
     'Tinga': true,
   };
 
+  // --- AÑADIDO: Mapa para guardar los EXTRAS disponibles ---
+  Map<String, bool> _availableExtras = {
+    'Arroz con Leche': true,
+    'Agua': true,
+    'Té': true,
+    'Cafe Soluble': true,
+    'Refrescos': true, // Este controlará la sección de refrescos
+  };
+
   // --- AÑADIDO: Mapa para guardar las cantidades de inventario (ejemplo) ---
   // Este mapa solo guarda las cantidades, la disponibilidad se controla arriba
   final Map<String, int> _inventoryQuantities = {
@@ -105,19 +114,24 @@ class _HomeScreenState extends State<HomeScreen> {
   // --- AÑADIDO: Navegación a la pantalla de mantenimiento ---
   void _navigateToMaintenance(BuildContext context) async {
     // Navega y espera a que la pantalla de mantenimiento devuelva un resultado
-    final Map<String, bool>? updatedFlavors = await Navigator.push(
+    // --- ACTUALIZADO: Ahora espera un mapa con dos claves ---
+    final Map<String, dynamic>? results = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => MaintenanceScreen(
           initialFlavors: _availableFlavors,
+          initialExtras: _availableExtras, // --- AÑADIDO: Pasa los extras
         ),
       ),
     );
 
     // Si el usuario guardó (no solo regresó), actualiza el estado
-    if (updatedFlavors != null) {
+    if (results != null &&
+        results.containsKey('flavors') &&
+        results.containsKey('extras')) {
       setState(() {
-        _availableFlavors = updatedFlavors;
+        _availableFlavors = results['flavors'] as Map<String, bool>;
+        _availableExtras = results['extras'] as Map<String, bool>;
       });
     }
   }
@@ -244,8 +258,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         MaterialPageRoute(
                           builder: (context) => OrderScreen(
                             orderType: 'Para llevar',
-                            // --- AÑADIDO: Pasa los sabores disponibles ---
+                            orderNumber: 1, // --- AÑADIDO: orderNumber por defecto
                             availableFlavors: _availableFlavors,
+                            availableExtras: _availableExtras,
                           ),
                         ),
                       );
@@ -262,6 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           builder: (context) => TableSelectionScreen(
                             // --- AÑADIDO: Pasa los sabores disponibles ---
                             availableFlavors: _availableFlavors,
+                            // --- AÑADIDO: Pasa los extras disponibles ---
+                            availableExtras: _availableExtras,
                           ),
                         ),
                       );
