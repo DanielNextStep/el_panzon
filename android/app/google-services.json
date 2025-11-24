@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "901557265714",
+    "project_id": "elpanzon-49f2d",
+    "storage_bucket": "elpanzon-49f2d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:901557265714:android:397ec644dc728ecbe2e32b",
+        "android_client_info": {
+          "package_name": "com.example.panzon_ordenes"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAODxcr1jgNw8mk_7yeTKHrHaBpZotyduw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:901557265714:android:6f135610b422d924e2e32b",
+        "android_client_info": {
+          "package_name": "dro.panzon.el_panzon"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAODxcr1jgNw8mk_7yeTKHrHaBpZotyduw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
