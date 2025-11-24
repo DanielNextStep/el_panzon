@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'shared_styles.dart';
-import 'table_order_manager.dart'; // Para usar el modelo OrderDetails
+import 'models/order_model.dart';
 
-// PANTALLA DE SOLO LECTURA PARA VER LOS DETALLES DE UNA ORDEN
 class OrderDetailScreen extends StatelessWidget {
-  final OrderDetails orderDetails;
+  final OrderModel orderDetails;
 
-  const OrderDetailScreen({
-    super.key,
-    required this.orderDetails,
-  });
+  const OrderDetailScreen({super.key, required this.orderDetails});
 
   @override
   Widget build(BuildContext context) {
@@ -22,55 +18,42 @@ class OrderDetailScreen extends StatelessWidget {
             Expanded(
               child: CustomScrollView(
                 slivers: [
-                  // --- Sección de Tacos ---
-                  if (orderDetails.tacoCounts.isNotEmpty)
+                  if (orderDetails.tacoCounts.isNotEmpty) ...[
                     SliverToBoxAdapter(
-                        child: _buildSectionHeader('Tacos')),
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                        String flavor =
-                        orderDetails.tacoCounts.keys.elementAt(index);
-                        int count = orderDetails.tacoCounts[flavor] ?? 0;
-                        if (count == 0) return const SizedBox.shrink();
-                        return _buildReadOnlyItem(flavor, count);
-                      },
-                      childCount: orderDetails.tacoCounts.length,
-                    ),
-                  ),
-
-                  // --- Sección de Refrescos ---
-                  if (orderDetails.sodaCounts.isNotEmpty) ...[
-                    SliverToBoxAdapter(
-                        child: _buildSectionHeader('Refrescos')),
+                        child: _buildSectionHeader('Tacos (${_getTacoTotal()})')),
                     SliverList(
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
-                          String flavor =
-                          orderDetails.sodaCounts.keys.elementAt(index);
-                          return _buildReadOnlySodaItem(
-                            flavor,
-                            orderDetails.sodaCounts[flavor] ?? {},
-                          );
+                          final entry = orderDetails.tacoCounts.entries.elementAt(index);
+                          return _buildDetailItem(entry.key, entry.value);
+                        },
+                        childCount: orderDetails.tacoCounts.length,
+                      ),
+                    ),
+                  ],
+
+                  if (orderDetails.sodaCounts.isNotEmpty) ...[
+                    SliverToBoxAdapter(child:
+                    _buildSectionHeader('Refrescos (${_getSodaTotal()})')),
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                          final entry = orderDetails.sodaCounts.entries.elementAt(index);
+                          return _buildSodaDetailItem(entry.key, entry.value);
                         },
                         childCount: orderDetails.sodaCounts.length,
                       ),
                     ),
                   ],
 
-                  // --- Sección de Extras Simples ---
                   if (orderDetails.simpleExtraCounts.isNotEmpty) ...[
-                    SliverToBoxAdapter(
-                        child: _buildSectionHeader('Extras')),
+                    SliverToBoxAdapter(child: _buildSectionHeader(
+                        'Extras (${_getExtraTotal()})')),
                     SliverList(
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
-                          String extra = orderDetails.simpleExtraCounts.keys
-                              .elementAt(index);
-                          int count =
-                              orderDetails.simpleExtraCounts[extra] ?? 0;
-                          if (count == 0) return const SizedBox.shrink();
-                          return _buildReadOnlyItem(extra, count);
+                          final entry = orderDetails.simpleExtraCounts.entries.elementAt(index);
+                          return _buildDetailItem(entry.key, entry.value);
                         },
                         childCount: orderDetails.simpleExtraCounts.length,
                       ),
@@ -79,153 +62,138 @@ class OrderDetailScreen extends StatelessWidget {
                 ],
               ),
             ),
+            _buildTotalSummary(),
           ],
         ),
       ),
     );
   }
 
-  // --- Encabezado de Sección ---
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 25, 20, 10),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: kAccentColor,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
+  int _getTacoTotal() {
+    return orderDetails.tacoCounts.values.fold(0, (sum, count) => sum + count);
   }
 
-  // --- App Bar ---
+  int _getSodaTotal() {
+    int total = 0;
+    for (var temps in orderDetails.sodaCounts.values) {
+      // --- FIX: Added .toInt() to ensure type safety ---
+      total += (temps['Frío'] ?? 0).toInt() + (temps['Al Tiempo'] ?? 0).toInt();
+    }
+    return total;
+  }
+
+  int _getExtraTotal() {
+    return orderDetails.simpleExtraCounts.values.fold(0, (sum, count) => sum + count);
+  }
+
   Widget _buildAppBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Botón de Regresar
           GestureDetector(
             onTap: () => Navigator.of(context).pop(),
             child: const NeumorphicContainer(
               isCircle: true,
               padding: EdgeInsets.all(14),
-              child: Icon(
-                Icons.arrow_back_ios_new,
-                color: kAccentColor,
-                size: 20,
-              ),
+              child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20),
             ),
           ),
-          // Título
           Text(
             'Detalle Orden ${orderDetails.orderNumber}',
-            style: const TextStyle(
-              color: kTextColor,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
+            style: const TextStyle(color: kTextColor, fontSize: 22, fontWeight: FontWeight.w700),
           ),
-          // Placeholder para centrar el título
           const SizedBox(width: 48),
         ],
       ),
     );
   }
 
-  // --- Widget para Tacos y Extras (solo lectura) ---
-  Widget _buildReadOnlyItem(String flavor, int count) {
+  Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 20.0),
-      child: NeumorphicContainer(
-        borderRadius: 15,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              flavor,
-              style: const TextStyle(
-                color: kTextColor,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              '$count',
-              style: const TextStyle(
-                color: kTextColor,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.fromLTRB(20, 25, 20, 10),
+      child: Text(
+        title,
+        style: const TextStyle(color: kAccentColor, fontSize: 20, fontWeight: FontWeight.w700),
       ),
     );
   }
 
-  // --- Widget para Refrescos (solo lectura) ---
-  Widget _buildReadOnlySodaItem(String flavor, Map<String, int> temps) {
-    final int frioCount = temps['Frío'] ?? 0;
-    final int tiempoCount = temps['Al Tiempo'] ?? 0;
-
-    if (frioCount == 0 && tiempoCount == 0) return const SizedBox.shrink();
-
+  Widget _buildDetailItem(String name, int count) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
-      child: NeumorphicContainer(
-        borderRadius: 15,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              flavor,
-              style: const TextStyle(
-                color: kTextColor,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 15),
-            if (frioCount > 0)
-              _buildReadOnlySubItem('Frío', frioCount),
-            if (frioCount > 0 && tiempoCount > 0)
-              const SizedBox(height: 10),
-            if (tiempoCount > 0)
-              _buildReadOnlySubItem('Al Tiempo', tiempoCount),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+      child: Row(
+        children: [
+          Text(
+            '$count x',
+            style: const TextStyle(color: kAccentColor, fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            name,
+            style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w500),
+          ),
+        ],
       ),
     );
   }
 
-  // --- Sub-item para refrescos ---
-  Widget _buildReadOnlySubItem(String label, int count) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: kTextColor,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
+  Widget _buildSodaDetailItem(String name, Map<String, int> temps) {
+    final int coldCount = temps['Frío'] ?? 0;
+    final int warmCount = temps['Al Tiempo'] ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w700),
           ),
-        ),
-        Text(
-          '$count',
-          style: const TextStyle(
-            color: kTextColor,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+          const SizedBox(height: 5),
+          if (coldCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(left: 10.0),
+              child: Text(
+                '$coldCount x Frío',
+                style: TextStyle(color: kTextColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.w500),
+              ),
+            ),
+          if (warmCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(left: 10.0),
+              child: Text(
+                '$warmCount x Al Tiempo',
+                style: TextStyle(color: kTextColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.w500),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotalSummary() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(28, 20, 28, 28),
+      decoration: const BoxDecoration(
+        color: kBackgroundColor,
+        border: Border(top: BorderSide(color: kShadowColor, width: 1.5)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Total Items:',
+            style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w500),
           ),
-        ),
-      ],
+          Text(
+            '${orderDetails.totalItems}',
+            style: const TextStyle(color: kTextColor, fontSize: 24, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
     );
   }
 }
