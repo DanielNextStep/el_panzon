@@ -5,35 +5,24 @@ import 'order_detail_screen.dart';
 import 'models/order_model.dart';
 import 'services/firestore_service.dart';
 
-class TableOrderManagerScreen extends StatefulWidget {
-  final int tableNumber;
+class ToGoOrdersScreen extends StatefulWidget {
   final Map<String, bool> availableFlavors;
   final Map<String, bool> availableExtras;
 
-  const TableOrderManagerScreen({
+  const ToGoOrdersScreen({
     super.key,
-    required this.tableNumber,
     required this.availableFlavors,
     required this.availableExtras,
   });
 
   @override
-  State<TableOrderManagerScreen> createState() =>
-      _TableOrderManagerScreenState();
+  State<ToGoOrdersScreen> createState() => _ToGoOrdersScreenState();
 }
 
-class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
+class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
   final FirestoreService _firestoreService = FirestoreService();
 
-  int _getNextOrderNumber(List<OrderModel> currentOrders) {
-    if (currentOrders.isEmpty) return 1;
-    int max = 0;
-    for (var o in currentOrders) {
-      if (o.orderNumber > max) max = o.orderNumber;
-    }
-    return max + 1;
-  }
-
+  // Helper to calculate served count
   int _getServedCount(OrderModel order) {
     int total = 0;
     order.tacoServed.forEach((_, count) => total += count);
@@ -44,13 +33,22 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     return total;
   }
 
+  int _getNextOrderNumber(List<OrderModel> currentOrders) {
+    if (currentOrders.isEmpty) return 1;
+    int max = 0;
+    for (var o in currentOrders) {
+      if (o.orderNumber > max) max = o.orderNumber;
+    }
+    return max + 1;
+  }
+
   void _navigateToAddOrder(BuildContext context, int nextOrderNumber) async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => OrderScreen(
-          orderType: 'Mesa ${widget.tableNumber}',
-          tableNumber: widget.tableNumber,
+          orderType: 'Para Llevar',
+          tableNumber: null, // Null means To Go (Table 0 in DB)
           orderNumber: nextOrderNumber,
           availableFlavors: widget.availableFlavors,
           availableExtras: widget.availableExtras,
@@ -69,8 +67,8 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => OrderScreen(
-          orderType: 'Mesa ${widget.tableNumber}',
-          tableNumber: widget.tableNumber,
+          orderType: 'Para Llevar',
+          tableNumber: null,
           orderNumber: order.orderNumber,
           availableFlavors: widget.availableFlavors,
           availableExtras: widget.availableExtras,
@@ -80,9 +78,10 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     );
 
     if (result != null && result is OrderModel) {
+      // Preserve ID and Served counts
       final updatedOrder = OrderModel(
         id: order.id,
-        tableNumber: result.tableNumber,
+        tableNumber: 0,
         orderNumber: result.orderNumber,
         totalItems: result.totalItems,
         timestamp: order.timestamp,
@@ -94,24 +93,12 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         sodaServed: order.sodaServed,
         simpleExtraServed: order.simpleExtraServed,
       );
-
       await _firestoreService.updateOrder(updatedOrder);
     }
   }
 
-  void _navigateToViewOrder(BuildContext context, OrderModel order) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => OrderDetailScreen(
-          orderDetails: order,
-        ),
-      ),
-    );
-  }
-
-  // --- NEW: Show Check Function ---
   void _showCheckPreview(BuildContext context) {
+    // Placeholder for Closing Process
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -124,39 +111,13 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.receipt_long, size: 50, color: kAccentColor),
-            const SizedBox(height: 15),
-            Text("Cuenta Mesa ${widget.tableNumber}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
+            const Text("Cerrar Turno / Corte", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
             const SizedBox(height: 20),
-            const Text("Total estimado: \$XXX.00", style: TextStyle(fontSize: 20, color: kAccentColor, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            const Text("(Próximamente: Cálculo real con precios)", style: TextStyle(color: Colors.grey)),
+            const Text("Aquí se mostrará el total de todas las órdenes para llevar del día para hacer el corte de caja.", textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kTextColor)),
             const SizedBox(height: 30),
-
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: NeumorphicContainer(
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      borderRadius: 15,
-                      child: const Center(child: Text("Seguir ordenando", style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold))),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => Navigator.pop(context), // TODO: Add logic to close table
-                    child: NeumorphicContainer(
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      borderRadius: 15,
-                      child: const Center(child: Text("Cerrar Mesa", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
-                    ),
-                  ),
-                ),
-              ],
+            NeumorphicButton(
+                text: "Cerrar Caja (Próximamente)",
+                onTap: () => Navigator.pop(context)
             )
           ],
         ),
@@ -166,26 +127,20 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String title = 'Mesa ${widget.tableNumber}';
-
     return Scaffold(
       backgroundColor: kBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
-            _buildAppBar(context, title),
-
+            _buildAppBar(context),
             Expanded(
               child: StreamBuilder<List<OrderModel>>(
-                stream: _firestoreService.getOrdersForTable(widget.tableNumber),
+                // We use Table 0 for "To Go" orders
+                stream: _firestoreService.getOrdersForTable(0),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator(color: kAccentColor));
                   }
-                  if (snapshot.hasError) {
-                    return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
-                  }
-
                   final orders = snapshot.data ?? [];
 
                   if (orders.isEmpty) {
@@ -203,30 +158,9 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
                 },
               ),
             ),
-
-            // --- UPDATED BOTTOM BAR ---
-            Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _showCheckPreview(context), // --- CALL CLOSURE LOGIC ---
-                      child: NeumorphicContainer(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        borderRadius: 20,
-                        child: const Center(
-                          child: Text(
-                            'Pedir Cuenta',
-                            style: TextStyle(color: kAccentColor, fontSize: 20, fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Closure Button for ALL To Go orders (End of Shift?)
+            // Or maybe specific closure is per customer?
+            // Usually To Go is pay-per-order.
           ],
         ),
       ),
@@ -238,11 +172,9 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.menu_book_outlined, color: kShadowColor, size: 80),
+          const Icon(Icons.shopping_bag_outlined, color: kShadowColor, size: 80),
           const SizedBox(height: 20),
-          const Text('Aún no hay órdenes', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 10),
-          Text('Presiona el botón "+" para agregar.', textAlign: TextAlign.center, style: TextStyle(color: kTextColor.withOpacity(0.7), fontSize: 16)),
+          const Text('No hay pedidos para llevar', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -252,6 +184,11 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     int servedCount = _getServedCount(order);
     double progress = order.totalItems > 0 ? servedCount / order.totalItems : 0.0;
     bool isFullyServed = servedCount >= order.totalItems && order.totalItems > 0;
+
+    // Use Name if available, otherwise Order ID
+    String displayName = order.customerName != null && order.customerName!.isNotEmpty
+        ? order.customerName!
+        : "Orden #${order.orderNumber}";
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0),
@@ -264,7 +201,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: () => _navigateToViewOrder(context, order),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => OrderDetailScreen(orderDetails: order))),
                     child: Container(
                       color: Colors.transparent,
                       child: Row(
@@ -273,27 +210,56 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Orden ${order.orderNumber}', style: const TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700)),
-                              Text(isFullyServed ? 'Completada' : 'En Progreso', style: TextStyle(color: isFullyServed ? Colors.green : kAccentColor, fontSize: 14, fontWeight: FontWeight.w600)),
+                              Text(displayName, style: const TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700)),
+                              Text(isFullyServed ? 'Listo para entregar' : 'Preparando...', style: TextStyle(color: isFullyServed ? Colors.green : kAccentColor, fontSize: 14, fontWeight: FontWeight.w600)),
                             ],
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('$servedCount / ${order.totalItems}', style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w700)),
-                              const Text('Servidos', style: TextStyle(color: kTextColor, fontSize: 12)),
-                            ],
+
+                          // --- CLOSURE BUTTON (Pay & Close) ---
+                          GestureDetector(
+                            onTap: () {
+                              // TODO: Show Bill Logic for this specific order
+                              showModalBottomSheet(
+                                context: context,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => Container(
+                                  decoration: const BoxDecoration(color: kBackgroundColor, borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+                                  padding: const EdgeInsets.all(28),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text("Cobrar: $displayName", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
+                                      const SizedBox(height: 20),
+                                      const Text("Total estimado: \$XXX.00", style: TextStyle(fontSize: 20, color: kAccentColor, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 30),
+                                      NeumorphicButton(text: "Cobrar y Cerrar", onTap: () => Navigator.pop(context))
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: kBackgroundColor,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(color: kShadowColor.withOpacity(0.5), offset: const Offset(3, 3), blurRadius: 5),
+                                  BoxShadow(color: Colors.white, offset: const Offset(-3, -3), blurRadius: 5),
+                                ],
+                              ),
+                              child: const Icon(Icons.attach_money, color: Colors.green),
+                            ),
                           ),
-                          const Icon(Icons.arrow_forward_ios, color: kTextColor, size: 18),
                         ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 15),
                 GestureDetector(
                   onTap: () => _navigateToEditOrder(context, order),
-                  child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(12), child: Icon(Icons.edit_outlined, color: kAccentColor, size: 22)),
+                  child: const Icon(Icons.edit_outlined, color: kAccentColor, size: 24),
                 ),
               ],
             ),
@@ -313,16 +279,16 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     );
   }
 
-  Widget _buildAppBar(BuildContext context, String title) {
+  Widget _buildAppBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           GestureDetector(onTap: () => Navigator.of(context).pop(), child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(14), child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20))),
-          Text(title, style: const TextStyle(color: kTextColor, fontSize: 22, fontWeight: FontWeight.w700)),
+          const Text("Para Llevar", style: TextStyle(color: kTextColor, fontSize: 22, fontWeight: FontWeight.w700)),
           StreamBuilder<List<OrderModel>>(
-              stream: _firestoreService.getOrdersForTable(widget.tableNumber),
+              stream: _firestoreService.getOrdersForTable(0),
               builder: (context, snapshot) {
                 final orders = snapshot.data ?? [];
                 final nextId = _getNextOrderNumber(orders);
@@ -332,5 +298,13 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         ],
       ),
     );
+  }
+}
+
+class NeumorphicButton extends StatelessWidget {
+  final String text; final VoidCallback onTap;
+  const NeumorphicButton({super.key, required this.text, required this.onTap});
+  @override Widget build(BuildContext context) {
+    return GestureDetector(onTap: onTap, child: NeumorphicContainer(borderRadius: 25, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15), child: Center(child: Text(text, style: const TextStyle(color: kAccentColor, fontSize: 18, fontWeight: FontWeight.w700)))));
   }
 }

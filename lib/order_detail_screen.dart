@@ -25,7 +25,8 @@ class OrderDetailScreen extends StatelessWidget {
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
                           final entry = orderDetails.tacoCounts.entries.elementAt(index);
-                          return _buildDetailItem(entry.key, entry.value);
+                          final served = orderDetails.tacoServed[entry.key] ?? 0;
+                          return _buildDetailItem(entry.key, entry.value, served);
                         },
                         childCount: orderDetails.tacoCounts.length,
                       ),
@@ -53,7 +54,8 @@ class OrderDetailScreen extends StatelessWidget {
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
                           final entry = orderDetails.simpleExtraCounts.entries.elementAt(index);
-                          return _buildDetailItem(entry.key, entry.value);
+                          final served = orderDetails.simpleExtraServed[entry.key] ?? 0;
+                          return _buildDetailItem(entry.key, entry.value, served);
                         },
                         childCount: orderDetails.simpleExtraCounts.length,
                       ),
@@ -76,7 +78,6 @@ class OrderDetailScreen extends StatelessWidget {
   int _getSodaTotal() {
     int total = 0;
     for (var temps in orderDetails.sodaCounts.values) {
-      // --- FIX: Added .toInt() to ensure type safety ---
       total += (temps['Frío'] ?? 0).toInt() + (temps['Al Tiempo'] ?? 0).toInt();
     }
     return total;
@@ -120,57 +121,99 @@ class OrderDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailItem(String name, int count) {
+  // --- UPDATE: Now accepts 'served' count ---
+  Widget _buildDetailItem(String name, int ordered, int served) {
+    bool isComplete = served >= ordered;
+    int pending = ordered - served;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-      child: Row(
-        children: [
-          Text(
-            '$count x',
-            style: const TextStyle(color: kAccentColor, fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            name,
-            style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w500),
-          ),
-        ],
+      child: NeumorphicContainer( // Wrapped in container for better visibility
+        borderRadius: 10,
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Text(
+                  '$ordered x ',
+                  style: const TextStyle(color: kAccentColor, fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  name,
+                  style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+
+            // --- Status Indicator ---
+            if (isComplete)
+              const Row(
+                children: [
+                  Text("Servido", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  SizedBox(width: 5),
+                  Icon(Icons.check_circle, color: Colors.green, size: 20),
+                ],
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: kAccentColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                child: Text("Faltan $pending", style: const TextStyle(color: kAccentColor, fontWeight: FontWeight.bold)),
+              )
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildSodaDetailItem(String name, Map<String, int> temps) {
-    final int coldCount = temps['Frío'] ?? 0;
-    final int warmCount = temps['Al Tiempo'] ?? 0;
+    final int coldOrdered = temps['Frío'] ?? 0;
+    final int warmOrdered = temps['Al Tiempo'] ?? 0;
+
+    final int coldServed = orderDetails.sodaServed[name]?['Frío'] ?? 0;
+    final int warmServed = orderDetails.sodaServed[name]?['Al Tiempo'] ?? 0;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            name,
-            style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 5),
-          if (coldCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(left: 10.0),
-              child: Text(
-                '$coldCount x Frío',
-                style: TextStyle(color: kTextColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.w500),
-              ),
+      child: NeumorphicContainer(
+        borderRadius: 15,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w700),
             ),
-          if (warmCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(left: 10.0),
-              child: Text(
-                '$warmCount x Al Tiempo',
-                style: TextStyle(color: kTextColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.w500),
-              ),
-            ),
-        ],
+            const SizedBox(height: 5),
+            if (coldOrdered > 0) ...[
+              _buildSubItemRow("Frío", coldOrdered, coldServed),
+            ],
+            if (warmOrdered > 0) ...[
+              const SizedBox(height: 5),
+              _buildSubItemRow("Al Tiempo", warmOrdered, warmServed),
+            ]
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildSubItemRow(String label, int ordered, int served) {
+    bool isComplete = served >= ordered;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          '$ordered x $label',
+          style: TextStyle(color: kTextColor.withOpacity(0.8), fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        if (isComplete)
+          const Icon(Icons.check_circle, color: Colors.green, size: 18)
+        else
+          Text("Faltan ${ordered - served}", style: const TextStyle(color: kAccentColor, fontSize: 14, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 

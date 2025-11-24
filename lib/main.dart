@@ -9,8 +9,9 @@ import 'table_selection_screen.dart';
 import 'maintenance_screen.dart';
 import 'services/firestore_service.dart';
 import 'models/inventory_model.dart';
-import 'models/order_model.dart'; // Added import
+import 'models/order_model.dart';
 import 'open_orders_screen.dart';
+import 'to_go_orders_screen.dart'; // --- NEW IMPORT ---
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -96,31 +97,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _navigateToOrderScreen(String orderType) async { // Added async
+  // --- UPDATED: Now opens the Manager Screen ---
+  void _navigateToToGoManager() {
     HapticFeedback.lightImpact();
-    // "To Go" Logic: We wait for the result
-    final result = await Navigator.push(
+    Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => OrderScreen(
-          orderType: orderType,
-          orderNumber: 1, // Simple ID for now
+        builder: (context) => ToGoOrdersScreen(
           availableFlavors: _inventory.flavors,
           availableExtras: _inventory.extras,
-          existingOrder: null,
         ),
       ),
     );
-
-    // --- NEW: SAVE TO GO ORDER ---
-    if (result != null && result is OrderModel) {
-      await _firestoreService.addOrder(result);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Orden Para Llevar enviada a cocina')),
-        );
-      }
-    }
   }
 
   void _navigateToTableSelection() {
@@ -137,7 +125,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showInventoryPopup() {
-    // ... same as before ...
     HapticFeedback.mediumImpact();
     final available = _inventory.flavors.entries
         .where((entry) => entry.value == true)
@@ -195,7 +182,8 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Expanded(flex: 2, child: Center(child: Image.asset('assets/images/Logo_Panzon_SF.png', height: 150))),
               Expanded(flex: 3, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                NeumorphicButton(text: 'Para llevar', onTap: () => _navigateToOrderScreen('Para llevar')),
+                // UPDATED: Calls the manager, not the creation screen
+                NeumorphicButton(text: 'Para llevar', onTap: _navigateToToGoManager),
                 const SizedBox(height: 30),
                 NeumorphicButton(text: 'Para comer aquí', onTap: () => _navigateToTableSelection()),
               ])),
