@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'shared_styles.dart';
 import 'models/order_model.dart';
+import 'models/inventory_model.dart'; // Required to check item types
+import 'services/firestore_service.dart'; // Required to fetch types
 
 class OrderScreen extends StatefulWidget {
   final String orderType;
@@ -25,19 +28,40 @@ class OrderScreen extends StatefulWidget {
 }
 
 class _OrderScreenState extends State<OrderScreen> {
+  final FirestoreService _firestoreService = FirestoreService();
+
   late Map<String, int> _tacoCounts;
   late Map<String, int> _simpleExtraCounts;
   late Map<String, Map<String, int>> _sodaCounts;
-  final TextEditingController _nameController = TextEditingController(); // --- NEW ---
+  final TextEditingController _nameController = TextEditingController();
 
   int _grandTotal = 0;
-  final List<String> _sodaFlavors = ['Coca', 'Boing de Mango', 'Boing de Guayaba'];
+  bool _isLoading = true; // To wait for inventory check
+
+  // Dynamic list populated from Firestore
+  List<String> _sodaFlavors = [];
+
+  // --- Multiple Salsas ---
+  List<String> _selectedSalsas = [];
+  final List<String> _salsaOptions = ['Tradicional', 'Cremosa', 'Roja', 'Habanero'];
 
   @override
   void initState() {
     super.initState();
+    _loadInventoryAndSetup();
+  }
 
-    // 1. Initialize maps
+  Future<void> _loadInventoryAndSetup() async {
+    // 1. Fetch Inventory to identify what is a "soda" vs "extra"
+    final items = await _firestoreService.getInventoryStream().first;
+
+    // 2. Dynamically build the list of Sodas based on 'type' field in DB
+    _sodaFlavors = items
+        .where((item) => item.type == 'soda')
+        .map((item) => item.name)
+        .toList();
+
+    // 3. Initialize Counts
     _tacoCounts = {};
     widget.availableFlavors.forEach((flavor, isAvailable) {
       if (isAvailable) _tacoCounts[flavor] = 0;
@@ -45,17 +69,24 @@ class _OrderScreenState extends State<OrderScreen> {
 
     _simpleExtraCounts = {};
     widget.availableExtras.forEach((extra, isAvailable) {
-      if (isAvailable && extra != 'Refrescos') _simpleExtraCounts[extra] = 0;
+      // Logic: If available AND not 'Refrescos' placeholder AND NOT in our dynamic soda list
+      if (isAvailable && extra != 'Refrescos' && !_sodaFlavors.contains(extra)) {
+        _simpleExtraCounts[extra] = 0;
+      }
     });
 
     _sodaCounts = {};
     for (var flavor in _sodaFlavors) {
-      _sodaCounts[flavor] = {'Frío': 0, 'Al Tiempo': 0};
+      // Only add if it's actually available/active in the passed extras
+      if (widget.availableExtras[flavor] == true) {
+        _sodaCounts[flavor] = {'Frío': 0, 'Al Tiempo': 0};
+      }
     }
 
-    // 2. Populate existing data
+    // 4. Populate existing data (Edit Mode)
     if (widget.existingOrder != null) {
-      _nameController.text = widget.existingOrder!.customerName ?? ''; // --- NEW ---
+      _nameController.text = widget.existingOrder!.customerName ?? '';
+      _selectedSalsas = List.from(widget.existingOrder!.salsas);
 
       widget.existingOrder!.tacoCounts.forEach((flavor, count) {
         if (_tacoCounts.containsKey(flavor)) _tacoCounts[flavor] = count;
@@ -66,13 +97,22 @@ class _OrderScreenState extends State<OrderScreen> {
       });
 
       widget.existingOrder!.sodaCounts.forEach((flavor, temps) {
-        if (_sodaCounts.containsKey(flavor)) {
+        // If this legacy order has a soda that is now inactive, we still want to show it ideally,
+        // or put it in _sodaCounts if it matches our dynamic list.
+        if (_sodaFlavors.contains(flavor)) {
+          _sodaCounts.putIfAbsent(flavor, () => {'Frío': 0, 'Al Tiempo': 0});
           _sodaCounts[flavor] = Map<String, int>.from(temps);
         }
       });
     }
 
     _calculateTotal();
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -81,7 +121,7 @@ class _OrderScreenState extends State<OrderScreen> {
     super.dispose();
   }
 
-  // ... Increment/Decrement methods remain identical ...
+  // ... Increment/Decrement methods ...
   void _incrementTaco(String flavor) { setState(() { _tacoCounts[flavor] = (_tacoCounts[flavor] ?? 0) + 1; _calculateTotal(); }); }
   void _decrementTaco(String flavor) { setState(() { if ((_tacoCounts[flavor] ?? 0) > 0) { _tacoCounts[flavor] = _tacoCounts[flavor]! - 1; _calculateTotal(); } }); }
   void _incrementSoda(String flavor, String temp) { setState(() { _sodaCounts[flavor]![temp] = (_sodaCounts[flavor]![temp] ?? 0) + 1; _calculateTotal(); }); }
@@ -99,8 +139,62 @@ class _OrderScreenState extends State<OrderScreen> {
     });
   }
 
+  void _saveOrder() {
+    final finalTacos = Map<String, int>.from(_tacoCounts)..removeWhere((_, v) => v == 0);
+    final finalExtras = Map<String, int>.from(_simpleExtraCounts)..removeWhere((_, v) => v == 0);
+    final finalSodas = <String, Map<String, int>>{};
+
+    _sodaCounts.forEach((key, value) {
+      int total = value['Frío']! + value['Al Tiempo']!;
+      if (total > 0) {
+        finalSodas[key] = Map<String, int>.from(value);
+      }
+    });
+
+    int totalItems = 0;
+    finalTacos.values.forEach((v) => totalItems += v);
+    finalExtras.values.forEach((v) => totalItems += v);
+    finalSodas.values.forEach((v) => totalItems += (v['Frío']! + v['Al Tiempo']!));
+
+    if (totalItems == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("La orden no puede estar vacía")));
+      return;
+    }
+
+    final newOrder = OrderModel(
+      id: widget.existingOrder?.id,
+      tableNumber: widget.tableNumber ?? 0,
+      orderNumber: widget.orderNumber,
+      totalItems: totalItems,
+      timestamp: widget.existingOrder?.timestamp ?? DateTime.now(),
+      customerName: _nameController.text.isEmpty ? null : _nameController.text,
+      salsas: _selectedSalsas,
+
+      tacoCounts: finalTacos,
+      sodaCounts: finalSodas,
+      simpleExtraCounts: finalExtras,
+      tacoServed: widget.existingOrder?.tacoServed ?? {},
+      sodaServed: widget.existingOrder?.sodaServed ?? {},
+      simpleExtraServed: widget.existingOrder?.simpleExtraServed ?? {},
+    );
+
+    Navigator.pop(context, newOrder);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: kBackgroundColor,
+        body: Center(child: CircularProgressIndicator(color: kAccentColor)),
+      );
+    }
+
+    final isToGo = widget.tableNumber == 0 || widget.tableNumber == null;
+
+    // Get list of active sodas to display (filtered dynamically)
+    final activeSodas = _sodaCounts.keys.toList();
+
     return Scaffold(
       backgroundColor: kBackgroundColor,
       body: SafeArea(
@@ -108,13 +202,15 @@ class _OrderScreenState extends State<OrderScreen> {
           children: [
             _buildAppBar(context),
 
-            // --- NEW: Customer Name Input (Only for "To Go") ---
-            if (widget.tableNumber == null)
+            if (isToGo)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-                child: NeumorphicContainer(
-                  borderRadius: 15,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
                   child: TextField(
                     controller: _nameController,
                     decoration: const InputDecoration(
@@ -122,14 +218,18 @@ class _OrderScreenState extends State<OrderScreen> {
                       border: InputBorder.none,
                       icon: Icon(Icons.person_outline, color: kAccentColor),
                     ),
-                    style: const TextStyle(color: kTextColor, fontSize: 18),
+                    style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
 
+            if (isToGo)
+              _buildSalsaSelector(),
+
             Expanded(
               child: CustomScrollView(
                 slivers: [
+                  // --- TACOS ---
                   if (_tacoCounts.isNotEmpty)
                     SliverToBoxAdapter(child: _buildSectionHeader('Tacos')),
                   SliverList(
@@ -146,18 +246,22 @@ class _OrderScreenState extends State<OrderScreen> {
                       childCount: _tacoCounts.length,
                     ),
                   ),
-                  if (widget.availableExtras['Refrescos'] == true) ...[
-                    SliverToBoxAdapter(child: _buildSectionHeader('Refrescos')),
+
+                  // --- SODA SECTION (Active Only) ---
+                  if (activeSodas.isNotEmpty) ...[
+                    SliverToBoxAdapter(child: _buildSectionHeader('Bebidas')),
                     SliverList(
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
-                          String flavor = _sodaFlavors[index];
+                          String flavor = activeSodas[index];
                           return _buildSodaOrderItem(flavor: flavor);
                         },
-                        childCount: _sodaFlavors.length,
+                        childCount: activeSodas.length,
                       ),
                     ),
                   ],
+
+                  // --- EXTRAS SECTION (Filtered) ---
                   if (_simpleExtraCounts.isNotEmpty) ...[
                     SliverToBoxAdapter(child: _buildSectionHeader('Extras')),
                     SliverList(
@@ -175,19 +279,83 @@ class _OrderScreenState extends State<OrderScreen> {
                       ),
                     ),
                   ],
+                  SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
               ),
             ),
-            _buildSummarySection(),
           ],
         ),
       ),
+      floatingActionButton: _grandTotal > 0 ? FloatingActionButton.extended(
+        onPressed: _saveOrder,
+        backgroundColor: kAccentColor,
+        icon: const Icon(Icons.check, color: Colors.white),
+        label: Text("Guardar ($_grandTotal items)", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ) : null,
+    );
+  }
+
+  Widget _buildSalsaSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader("Salsas (Opcional)"),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(20, 5, 20, 20),
+          clipBehavior: Clip.none,
+          child: Row(
+            children: _salsaOptions.map((salsa) {
+              final isSelected = _selectedSalsas.contains(salsa);
+              return Padding(
+                padding: const EdgeInsets.only(right: 15),
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedSalsas.remove(salsa);
+                      } else {
+                        _selectedSalsas.add(salsa);
+                      }
+                    });
+                    HapticFeedback.selectionClick();
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    decoration: BoxDecoration(
+                        color: isSelected ? kAccentColor : kBackgroundColor,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: isSelected
+                            ? [
+                          BoxShadow(color: kAccentColor.withOpacity(0.4), offset: const Offset(2, 4), blurRadius: 6),
+                        ]
+                            : [
+                          BoxShadow(color: kShadowColor.withOpacity(0.5), offset: const Offset(4, 4), blurRadius: 6),
+                          BoxShadow(color: Colors.white, offset: const Offset(-4, -4), blurRadius: 6),
+                        ]
+                    ),
+                    child: Text(
+                      salsa,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : kTextColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 25, 20, 10),
+      padding: const EdgeInsets.fromLTRB(20, 15, 20, 10),
       child: Text(
         title,
         style: const TextStyle(color: kAccentColor, fontSize: 20, fontWeight: FontWeight.w700),
@@ -196,7 +364,6 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   Widget _buildAppBar(BuildContext context) {
-    // ... AppBar logic remains same ...
     String title = widget.orderType;
     if (widget.tableNumber != null) {
       title = 'Mesa ${widget.tableNumber} - Orden ${widget.orderNumber}';
@@ -228,7 +395,6 @@ class _OrderScreenState extends State<OrderScreen> {
     );
   }
 
-  // ... _buildTacoOrderItem, _buildSodaOrderItem, _buildCounterRow remain exactly the same ...
   Widget _buildTacoOrderItem({required String flavor, required int count, required VoidCallback onDecrement, required VoidCallback onIncrement}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
@@ -279,68 +445,5 @@ class _OrderScreenState extends State<OrderScreen> {
         GestureDetector(onTap: onIncrement, child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(10), child: Icon(Icons.add, color: kAccentColor, size: 20))),
       ]),
     ]);
-  }
-
-  Widget _buildSummarySection() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(28, 20, 28, 28),
-      decoration: const BoxDecoration(
-        color: kBackgroundColor,
-        border: Border(top: BorderSide(color: kShadowColor, width: 1.5)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Total Items:', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w500)),
-              Text('$_grandTotal', style: const TextStyle(color: kTextColor, fontSize: 24, fontWeight: FontWeight.w800)),
-            ],
-          ),
-          const SizedBox(height: 20),
-          GestureDetector(
-            onTap: () {
-              // Create OrderModel
-              final orderModel = OrderModel(
-                id: widget.existingOrder?.id,
-                tableNumber: widget.tableNumber ?? 0, // Use 0 for To Go
-                orderNumber: widget.orderNumber,
-                totalItems: _grandTotal,
-                timestamp: widget.existingOrder?.timestamp ?? DateTime.now(),
-                customerName: _nameController.text.isEmpty ? null : _nameController.text, // --- SAVE NAME ---
-
-                tacoCounts: Map.fromEntries(_tacoCounts.entries.where((e) => e.value > 0)),
-                sodaCounts: Map.fromEntries(_sodaCounts.entries.where((e) => (e.value['Frío']! + e.value['Al Tiempo']!) > 0)),
-                simpleExtraCounts: Map.fromEntries(_simpleExtraCounts.entries.where((e) => e.value > 0)),
-
-                // Keep existing served counts if editing
-                tacoServed: widget.existingOrder?.tacoServed ?? {},
-                sodaServed: widget.existingOrder?.sodaServed ?? {},
-                simpleExtraServed: widget.existingOrder?.simpleExtraServed ?? {},
-              );
-
-              Navigator.of(context).pop(orderModel);
-            },
-            child: NeumorphicContainer(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              borderRadius: 20,
-              child: Center(
-                child: Text(
-                  _getButtonText(),
-                  style: const TextStyle(color: kAccentColor, fontSize: 20, fontWeight: FontWeight.w700),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getButtonText() {
-    if (widget.tableNumber == null) return 'Crear Orden';
-    if (widget.existingOrder != null) return 'Actualizar Orden ${widget.orderNumber}';
-    return 'Añadir Orden ${widget.orderNumber} a Mesa';
   }
 }

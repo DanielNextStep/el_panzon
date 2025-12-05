@@ -6,7 +6,8 @@ class OrderModel {
   final int orderNumber;
   final int totalItems;
   final DateTime timestamp;
-  final String? customerName; // --- NEW FIELD ---
+  final String? customerName;
+  final List<String> salsas; // --- CHANGED: Now a List ---
 
   // What was ORDERED
   final Map<String, int> tacoCounts;
@@ -24,7 +25,8 @@ class OrderModel {
     required this.orderNumber,
     required this.totalItems,
     required this.timestamp,
-    this.customerName, // --- NEW ---
+    this.customerName,
+    this.salsas = const [], // Default empty list
     required this.tacoCounts,
     required this.sodaCounts,
     required this.simpleExtraCounts,
@@ -53,7 +55,8 @@ class OrderModel {
       orderNumber: data['orderNumber'] ?? 0,
       totalItems: data['totalItems'] ?? 0,
       timestamp: (data['timestamp'] as Timestamp).toDate(),
-      customerName: data['customerName'], // --- NEW ---
+      customerName: data['customerName'],
+      salsas: List<String>.from(data['salsas'] ?? []), // --- LOAD LIST ---
 
       tacoCounts: Map<String, int>.from(data['tacoCounts'] ?? {}),
       sodaCounts: parseNestedMap(data['sodaCounts']),
@@ -71,7 +74,8 @@ class OrderModel {
       'orderNumber': orderNumber,
       'totalItems': totalItems,
       'timestamp': Timestamp.fromDate(timestamp),
-      'customerName': customerName, // --- NEW ---
+      'customerName': customerName,
+      'salsas': salsas, // --- SAVE LIST ---
       'tacoCounts': tacoCounts,
       'sodaCounts': sodaCounts,
       'simpleExtraCounts': simpleExtraCounts,

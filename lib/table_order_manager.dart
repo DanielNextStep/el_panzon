@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For HapticFeedback
 import 'shared_styles.dart';
 import 'order_screen.dart';
 import 'order_detail_screen.dart';
 import 'models/order_model.dart';
+import 'models/inventory_model.dart'; // Needed for Pricing
 import 'services/firestore_service.dart';
 
 class TableOrderManagerScreen extends StatefulWidget {
@@ -24,6 +26,69 @@ class TableOrderManagerScreen extends StatefulWidget {
 
 class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
   final FirestoreService _firestoreService = FirestoreService();
+  Map<String, double> _priceMap = {}; // Local cache for prices
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrices();
+  }
+
+  void _loadPrices() {
+    _firestoreService.getInventoryStream().listen((items) {
+      if (mounted) {
+        setState(() {
+          _priceMap = {for (var item in items) item.name: item.price};
+        });
+      }
+    });
+  }
+
+  // --- CALCULATE TOTAL FOR ALL ORDERS AT TABLE ---
+  double _calculateTableTotal(List<OrderModel> orders) {
+    double total = 0.0;
+    for (var order in orders) {
+      order.tacoCounts.forEach((name, qty) {
+        total += (_priceMap[name] ?? 0.0) * qty;
+      });
+      order.simpleExtraCounts.forEach((name, qty) {
+        total += (_priceMap[name] ?? 0.0) * qty;
+      });
+      order.sodaCounts.forEach((name, temps) {
+        int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+        total += (_priceMap[name] ?? 0.0) * qty;
+      });
+    }
+    return total;
+  }
+
+  // --- CLOSE TABLE LOGIC ---
+  Future<void> _processTableCheckout(List<OrderModel> orders) async {
+    HapticFeedback.heavyImpact();
+    try {
+      // Process each order individually (Mark paid/Delete)
+      for (var order in orders) {
+        await _firestoreService.processCheckout(order);
+      }
+      if (mounted) {
+        Navigator.pop(context); // Close BottomSheet
+        Navigator.pop(context); // Go back to Table Selection
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Mesa ${widget.tableNumber} cerrada exitosamente"),
+              backgroundColor: Colors.green,
+            )
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red)
+        );
+      }
+    }
+  }
 
   int _getNextOrderNumber(List<OrderModel> currentOrders) {
     if (currentOrders.isEmpty) return 1;
@@ -110,8 +175,15 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     );
   }
 
-  // --- NEW: Show Check Function ---
-  void _showCheckPreview(BuildContext context) {
+  // --- UPDATED: Show Check Preview with Real Data ---
+  void _showCheckPreview(BuildContext context, List<OrderModel> orders) {
+    if (orders.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No hay órdenes para cobrar")));
+      return;
+    }
+
+    double total = _calculateTableTotal(orders);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -128,9 +200,10 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
             const SizedBox(height: 15),
             Text("Cuenta Mesa ${widget.tableNumber}", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
             const SizedBox(height: 20),
-            const Text("Total estimado: \$XXX.00", style: TextStyle(fontSize: 20, color: kAccentColor, fontWeight: FontWeight.bold)),
+            // REAL TOTAL DISPLAY
+            Text("Total a Pagar: \$${total.toStringAsFixed(2)}", style: const TextStyle(fontSize: 24, color: kAccentColor, fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
-            const Text("(Próximamente: Cálculo real con precios)", style: TextStyle(color: Colors.grey)),
+            Text("${orders.length} Órdenes combinadas", style: const TextStyle(color: Colors.grey)),
             const SizedBox(height: 30),
 
             Row(
@@ -148,7 +221,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
                 const SizedBox(width: 20),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () => Navigator.pop(context), // TODO: Add logic to close table
+                    onTap: () => _processTableCheckout(orders), // CALL CLOSURE FUNCTION
                     child: NeumorphicContainer(
                       padding: const EdgeInsets.symmetric(vertical: 15),
                       borderRadius: 15,
@@ -166,68 +239,65 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String title = 'Mesa ${widget.tableNumber}';
-
     return Scaffold(
       backgroundColor: kBackgroundColor,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildAppBar(context, title),
+        child: StreamBuilder<List<OrderModel>>(
+          // --- MOVED StreamBuilder UP: Wraps the whole UI ---
+          stream: _firestoreService.getOrdersForTable(widget.tableNumber),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: kAccentColor));
+            }
 
-            Expanded(
-              child: StreamBuilder<List<OrderModel>>(
-                stream: _firestoreService.getOrdersForTable(widget.tableNumber),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: kAccentColor));
-                  }
-                  if (snapshot.hasError) {
-                    return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
-                  }
+            final orders = snapshot.data ?? [];
+            final nextId = _getNextOrderNumber(orders);
 
-                  final orders = snapshot.data ?? [];
+            return Column(
+              children: [
+                // AppBar needs context to call _navigateToAddOrder
+                _buildAppBar(context, 'Mesa ${widget.tableNumber}', nextId),
 
-                  if (orders.isEmpty) {
-                    return _buildEmptyState();
-                  }
-
-                  return ListView.builder(
+                Expanded(
+                  child: orders.isEmpty
+                      ? _buildEmptyState()
+                      : ListView.builder(
                     padding: const EdgeInsets.all(20),
                     itemCount: orders.length,
                     itemBuilder: (context, index) {
-                      final order = orders[index];
-                      return _buildOrderItem(order);
+                      return _buildOrderItem(orders[index]);
                     },
-                  );
-                },
-              ),
-            ),
+                  ),
+                ),
 
-            // --- UPDATED BOTTOM BAR ---
-            Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _showCheckPreview(context), // --- CALL CLOSURE LOGIC ---
-                      child: NeumorphicContainer(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        borderRadius: 20,
-                        child: const Center(
-                          child: Text(
-                            'Pedir Cuenta',
-                            style: TextStyle(color: kAccentColor, fontSize: 20, fontWeight: FontWeight.w700),
+                // --- BOTTOM BAR (Check Button) ---
+                if (orders.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            // Pass the current list of orders to the function
+                            onTap: () => _showCheckPreview(context, orders),
+                            child: NeumorphicContainer(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              borderRadius: 20,
+                              child: const Center(
+                                child: Text(
+                                  'Pedir Cuenta',
+                                  style: TextStyle(color: kAccentColor, fontSize: 20, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
@@ -313,21 +383,28 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     );
   }
 
-  Widget _buildAppBar(BuildContext context, String title) {
+  Widget _buildAppBar(BuildContext context, String title, int nextOrderNumber) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          GestureDetector(onTap: () => Navigator.of(context).pop(), child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(14), child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20))),
+          GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: const NeumorphicContainer(
+              isCircle: true,
+              padding: EdgeInsets.all(14),
+              child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20),
+            ),
+          ),
           Text(title, style: const TextStyle(color: kTextColor, fontSize: 22, fontWeight: FontWeight.w700)),
-          StreamBuilder<List<OrderModel>>(
-              stream: _firestoreService.getOrdersForTable(widget.tableNumber),
-              builder: (context, snapshot) {
-                final orders = snapshot.data ?? [];
-                final nextId = _getNextOrderNumber(orders);
-                return GestureDetector(onTap: () => _navigateToAddOrder(context, nextId), child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(14), child: Icon(Icons.add, color: kAccentColor, size: 22)));
-              }
+          GestureDetector(
+            onTap: () => _navigateToAddOrder(context, nextOrderNumber),
+            child: const NeumorphicContainer(
+              isCircle: true,
+              padding: EdgeInsets.all(14),
+              child: Icon(Icons.add, color: kAccentColor, size: 22),
+            ),
           ),
         ],
       ),

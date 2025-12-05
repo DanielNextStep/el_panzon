@@ -1,33 +1,74 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'shared_styles.dart';
+import 'services/firestore_service.dart';
+import 'services/printer_service.dart'; // Ensure this import exists
+import 'models/inventory_model.dart';
 
-class MaintenanceScreen extends StatefulWidget {
-  final Map<String, bool> initialFlavors;
-  // --- AÑADIDO: Mapa de extras ---
-  final Map<String, bool> initialExtras;
+class MaintenanceScreen extends StatelessWidget {
+  const MaintenanceScreen({super.key});
 
-  const MaintenanceScreen({
-    super.key,
-    required this.initialFlavors,
-    required this.initialExtras, // --- AÑADIDO: al constructor
-  });
+  // --- Show Printer Config Dialog ---
+  void _showPrinterConfig(BuildContext context) async {
+    final TextEditingController ipController = TextEditingController();
+    final PrinterService printerService = PrinterService();
 
-  @override
-  State<MaintenanceScreen> createState() => _MaintenanceScreenState();
-}
+    // Load current IP (Now fetches from Firestore)
+    try {
+      ipController.text = await printerService.getStoredIp();
+    } catch (e) {
+      ipController.text = "192.168.1.200"; // Fallback
+    }
 
-class _MaintenanceScreenState extends State<MaintenanceScreen> {
-  // Mapa local para rastrear los cambios
-  late Map<String, bool> _currentFlavors;
-  // --- AÑADIDO: Mapa local para extras ---
-  late Map<String, bool> _currentExtras;
-
-  @override
-  void initState() {
-    super.initState();
-    // Copia los mapas iniciales al estado local
-    _currentFlavors = Map<String, bool>.from(widget.initialFlavors);
-    _currentExtras = Map<String, bool>.from(widget.initialExtras);
+    showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: kBackgroundColor,
+            title: const Text("Configurar Impresora", style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("IP de Impresora (Compartida):", style: TextStyle(color: kTextColor)),
+                const SizedBox(height: 15),
+                NeumorphicContainer(
+                  isInner: true,
+                  padding: const EdgeInsets.symmetric(horizontal: 15),
+                  child: TextField(
+                    controller: ipController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: "Ej. 192.168.1.200"
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text("Nota: Este cambio afectará a todos los dispositivos.", style: TextStyle(fontSize: 12, color: Colors.orange)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
+                onPressed: () => Navigator.pop(context),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: kAccentColor),
+                child: const Text("Guardar", style: TextStyle(color: Colors.white)),
+                onPressed: () async {
+                  await printerService.savePrinterIp(ipController.text);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("IP Global actualizada: ${ipController.text}"))
+                    );
+                  }
+                },
+              )
+            ],
+          );
+        }
+    );
   }
 
   @override
@@ -37,170 +78,413 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // --- Custom Neumorphic App Bar ---
             _buildAppBar(context),
-
-            // --- ACTUALIZADO: Lista con secciones ---
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  // --- Sección de Tacos ---
-                  _buildSectionHeader('Tacos'),
-                  ..._currentFlavors.keys.map((String flavor) {
-                    return _buildFlavorToggleItem(
-                      flavor: flavor,
-                      isAvailable: _currentFlavors[flavor] ?? false,
-                      onChanged: (bool newValue) {
-                        setState(() {
-                          _currentFlavors[flavor] = newValue;
-                        });
-                      },
-                    );
-                  }).toList(),
+              child: StreamBuilder<List<InventoryItem>>(
+                stream: FirestoreService().getInventoryStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator(color: kAccentColor));
+                  }
 
-                  const SizedBox(height: 25), // Espaciador
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return _buildEmptyState(context);
+                  }
 
-                  // --- Sección de Extras ---
-                  _buildSectionHeader('Extras'),
-                  ..._currentExtras.keys.map((String extra) {
-                    return _buildFlavorToggleItem(
-                      flavor: extra,
-                      isAvailable: _currentExtras[extra] ?? false,
-                      onChanged: (bool newValue) {
-                        setState(() {
-                          _currentExtras[extra] = newValue;
-                        });
-                      },
-                    );
-                  }).toList(),
-                ],
+                  final items = snapshot.data!;
+
+                  // Organize by sections
+                  final tacos = items.where((i) => i.type == 'taco').toList();
+                  final sodas = items.where((i) => i.type == 'soda').toList();
+                  final extras = items.where((i) => i.type == 'extra').toList();
+
+                  return ListView(
+                    padding: const EdgeInsets.all(20),
+                    children: [
+                      if (tacos.isNotEmpty) ...[
+                        _buildSectionHeader("Tacos"),
+                        ...tacos.map((i) => _InventoryItemCard(item: i)),
+                        const SizedBox(height: 20),
+                      ],
+                      if (extras.isNotEmpty) ...[
+                        _buildSectionHeader("Postres y Extras"),
+                        ...extras.map((i) => _InventoryItemCard(item: i)),
+                        const SizedBox(height: 20),
+                      ],
+                      if (sodas.isNotEmpty) ...[
+                        _buildSectionHeader("Bebidas"),
+                        ...sodas.map((i) => _InventoryItemCard(item: i)),
+                      ],
+                    ],
+                  );
+                },
               ),
             ),
-
-            // --- Botón de Guardar ---
-            _buildSaveButton(context),
           ],
         ),
       ),
     );
   }
 
-  // --- AÑADIDO: Widget de encabezado de sección ---
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10.0),
+      padding: const EdgeInsets.only(left: 10, bottom: 10),
       child: Text(
         title,
         style: const TextStyle(
-          color: kAccentColor,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
+          color: kTextColor,
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
         ),
       ),
     );
   }
 
-  // --- Custom App Bar Widget ---
-  Widget _buildAppBar(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 15.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildEmptyState(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Botón de Regresar (sin guardar)
-          GestureDetector(
-            onTap: () => Navigator.of(context).pop(), // No devuelve nada
-            child: const NeumorphicContainer(
-              isCircle: true,
-              padding: EdgeInsets.all(14),
-              child: Icon(
-                Icons.arrow_back_ios_new,
-                color: kAccentColor,
-                size: 20,
-              ),
-            ),
-          ),
-          // Título
-          const Text(
-            'Mantenimiento',
-            style: TextStyle(
-              color: kTextColor,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          // Placeholder para centrar el título
-          const SizedBox(width: 48),
+          const Text("No hay items en el inventario"),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: () {
+              FirestoreService().resetInventoryToDefaults();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: kAccentColor),
+            child: const Text("Cargar Menú Default", style: TextStyle(color: Colors.white)),
+          )
         ],
       ),
     );
   }
 
-  // --- Widget para cada sabor en la lista ---
-  Widget _buildFlavorToggleItem({
-    required String flavor,
-    required bool isAvailable,
-    required ValueChanged<bool> onChanged,
-  }) {
+  Widget _buildAppBar(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: const NeumorphicContainer(
+              isCircle: true,
+              padding: EdgeInsets.all(12),
+              child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20),
+            ),
+          ),
+          const SizedBox(width: 20),
+          const Expanded(
+            child: Text(
+              'Inventario',
+              style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+          ),
+          // --- PRINTER CONFIG BUTTON (NEW) ---
+          IconButton(
+            icon: const Icon(Icons.print, color: kAccentColor),
+            tooltip: "Configurar Impresora",
+            onPressed: () => _showPrinterConfig(context),
+          ),
+          // --- RESTORE BUTTON ---
+          IconButton(
+            icon: const Icon(Icons.cloud_download_outlined, color: kAccentColor),
+            tooltip: "Restaurar Menú",
+            onPressed: () {
+              // Force update to sync local code prices with DB
+              FirestoreService().resetInventoryToDefaults(forceUpdate: true);
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Menú restaurado a valores por defecto"))
+              );
+            },
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _InventoryItemCard extends StatefulWidget {
+  final InventoryItem item;
+
+  const _InventoryItemCard({required this.item});
+
+  @override
+  State<_InventoryItemCard> createState() => _InventoryItemCardState();
+}
+
+class _InventoryItemCardState extends State<_InventoryItemCard> {
+  late TextEditingController _priceController;
+  late TextEditingController _productionController;
+  late bool _isActive;
+  final FirestoreService _service = FirestoreService();
+  bool _isDirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _priceController = TextEditingController(text: widget.item.price.toStringAsFixed(2));
+    _productionController = TextEditingController(text: widget.item.dailyProduction.toString());
+    _isActive = widget.item.isActive;
+  }
+
+  @override
+  void didUpdateWidget(_InventoryItemCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.item != oldWidget.item) {
+      _priceController.text = widget.item.price.toStringAsFixed(2);
+      _productionController.text = widget.item.dailyProduction.toString();
+      _isActive = widget.item.isActive;
+      _isDirty = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    _productionController.dispose();
+    super.dispose();
+  }
+
+  void _markDirty() {
+    if (!_isDirty) {
+      setState(() {
+        _isDirty = true;
+      });
+    }
+  }
+
+  void _saveChanges() {
+    final newPrice = double.tryParse(_priceController.text) ?? 0.0;
+    final newProduction = int.tryParse(_productionController.text) ?? 0;
+
+    // Create updated item
+    final updatedItem = InventoryItem(
+      id: widget.item.id,
+      name: widget.item.name,
+      type: widget.item.type,
+      price: newPrice,
+      dailyProduction: newProduction,
+      isActive: _isActive,
+    );
+
+    _service.updateInventoryItem(updatedItem);
+
+    setState(() {
+      _isDirty = false;
+    });
+
+    FocusScope.of(context).unfocus();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("${widget.item.name} actualizado"),
+          backgroundColor: Colors.green,
+          duration: const Duration(milliseconds: 800),
+        )
+    );
+  }
+
+  bool get _requiresProductionInput {
+    if (widget.item.type == 'taco') return true;
+    if (widget.item.name == 'Arroz con leche') return true;
+    if (widget.item.name == 'Café de Olla') return true;
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
       child: NeumorphicContainer(
         borderRadius: 15,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              flavor,
-              style: TextStyle(
-                color: kTextColor,
-                fontSize: 18,
-                fontWeight: isAvailable ? FontWeight.w600 : FontWeight.w400,
-                decoration: isAvailable
-                    ? TextDecoration.none
-                    : TextDecoration.lineThrough,
+        padding: const EdgeInsets.all(15),
+        child: Opacity(
+          opacity: _isActive ? 1.0 : 0.6,
+          child: Column(
+            children: [
+              // --- Header: Icon, Name, Switch ---
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                        color: kBackgroundColor,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: Colors.white, offset: const Offset(-2, -2), blurRadius: 2),
+                          BoxShadow(color: kShadowColor.withOpacity(0.2), offset: const Offset(2, 2), blurRadius: 2),
+                        ]
+                    ),
+                    child: _getIconForType(widget.item.type),
+                  ),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.item.name,
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: _isActive ? kTextColor : Colors.grey
+                          ),
+                        ),
+                        Text(
+                          widget.item.type.toUpperCase(),
+                          style: TextStyle(color: kTextColor.withOpacity(0.5), fontSize: 12, letterSpacing: 1.0),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Transform.scale(
+                    scale: 0.8,
+                    child: Switch(
+                      value: _isActive,
+                      activeColor: kAccentColor,
+                      onChanged: (val) {
+                        setState(() {
+                          _isActive = val;
+                          _isDirty = true;
+                        });
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ),
-            Switch(
-              value: isAvailable,
-              onChanged: onChanged,
-              activeColor: kAccentColor,
-              inactiveTrackColor: kShadowColor.withOpacity(0.5),
-            ),
-          ],
+
+              const SizedBox(height: 15),
+
+              // --- Inputs Row ---
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // Price Input
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4, bottom: 4),
+                          child: Text("PRECIO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: Row(
+                            children: [
+                              const Text("\$", style: TextStyle(fontWeight: FontWeight.bold, color: kAccentColor)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _priceController,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor),
+                                  onChanged: (_) => _markDirty(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 15),
+
+                  // Production Input
+                  if (_requiresProductionInput) ...[
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(left: 4, bottom: 4),
+                            child: Text("PROD. HOY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            child: Row(
+                              children: [
+                                const Text("#", style: TextStyle(fontWeight: FontWeight.bold, color: kAccentColor)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _productionController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                    ),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor),
+                                    onChanged: (_) => _markDirty(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 15),
+                  ] else ...[
+                    const Spacer(flex: 4),
+                    const SizedBox(width: 15),
+                  ],
+
+                  // Save Button
+                  GestureDetector(
+                    onTap: _isDirty ? _saveChanges : null,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _isDirty ? Colors.green : kBackgroundColor,
+                        shape: BoxShape.circle,
+                        boxShadow: _isDirty ? [] : [
+                          BoxShadow(color: Colors.white, offset: const Offset(-2, -2), blurRadius: 2),
+                          BoxShadow(color: kShadowColor.withOpacity(0.2), offset: const Offset(2, 2), blurRadius: 2),
+                        ],
+                      ),
+                      child: Icon(
+                          Icons.save,
+                          color: _isDirty ? Colors.white : Colors.grey.withOpacity(0.3),
+                          size: 20
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // --- Botón de Guardar en la parte inferior ---
-  Widget _buildSaveButton(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(28.0),
-      child: GestureDetector(
-        onTap: () {
-          // --- ACTUALIZADO: Devuelve un mapa con ambas listas ---
-          Navigator.of(context).pop({
-            'flavors': _currentFlavors,
-            'extras': _currentExtras,
-          });
-        },
-        child: NeumorphicContainer(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          borderRadius: 20,
-          child: const Center(
-            child: Text(
-              'Guardar Cambios',
-              style: TextStyle(
-                color: kAccentColor,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+  Widget _getIconForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'taco':
+        return const Text("🌮", style: TextStyle(fontSize: 24));
+      case 'soda':
+        return const Icon(Icons.local_drink, color: kAccentColor, size: 24);
+      case 'extra':
+        return const Icon(Icons.icecream, color: kAccentColor, size: 24);
+      default:
+        return const Icon(Icons.fastfood, color: kAccentColor, size: 24);
+    }
   }
 }

@@ -1,39 +1,69 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// --- New Detailed Model for Maintenance ---
+class InventoryItem {
+  final String id;
+  final String name;
+  final String type; // 'taco', 'soda', 'extra'
+  final double price;
+  final int dailyProduction;
+  final bool isActive;
+
+  InventoryItem({
+    required this.id,
+    required this.name,
+    required this.type,
+    this.price = 0.0,
+    this.dailyProduction = 0,
+    this.isActive = true,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'type': type,
+      'price': price,
+      'dailyProduction': dailyProduction,
+      'isActive': isActive,
+    };
+  }
+
+  factory InventoryItem.fromSnapshot(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return InventoryItem(
+      id: doc.id,
+      name: data['name'] ?? '',
+      type: data['type'] ?? 'taco',
+      price: (data['price'] ?? 0.0).toDouble(),
+      dailyProduction: (data['dailyProduction'] ?? 0).toInt(),
+      isActive: data['isActive'] ?? true,
+    );
+  }
+}
+
+// --- Old Model (Kept for backward compatibility with existing screens) ---
 class Inventory {
   final Map<String, bool> flavors;
   final Map<String, bool> extras;
 
-  Inventory({
-    required this.flavors,
-    required this.extras,
-  });
+  Inventory({required this.flavors, required this.extras});
 
-  // Factory: Creates an empty inventory (useful for initial loading state)
   factory Inventory.empty() {
     return Inventory(flavors: {}, extras: {});
   }
 
-  // Factory: Converts Firestore data (Map<String, dynamic>) into our clean Inventory object
-  factory Inventory.fromSnapshot(DocumentSnapshot snapshot) {
-    if (!snapshot.exists || snapshot.data() == null) {
-      return Inventory.empty();
+  // Helper to create the old "Inventory" object from the new List<InventoryItem>
+  factory Inventory.fromItemList(List<InventoryItem> items) {
+    final flavors = <String, bool>{};
+    final extras = <String, bool>{};
+
+    for (var item in items) {
+      if (item.type == 'taco') {
+        flavors[item.name] = item.isActive;
+      } else {
+        extras[item.name] = item.isActive;
+      }
     }
-
-    final data = snapshot.data() as Map<String, dynamic>;
-
-    return Inventory(
-      // We use Map.from to safely convert the dynamic types from Firebase
-      flavors: Map<String, bool>.from(data['flavors'] ?? {}),
-      extras: Map<String, bool>.from(data['extras'] ?? {}),
-    );
-  }
-
-  // Method: Converts our object back to a Map for saving to Firestore
-  Map<String, dynamic> toMap() {
-    return {
-      'flavors': flavors,
-      'extras': extras,
-    };
+    return Inventory(flavors: flavors, extras: extras);
   }
 }

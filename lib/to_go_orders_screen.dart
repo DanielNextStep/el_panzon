@@ -3,6 +3,7 @@ import 'shared_styles.dart';
 import 'order_screen.dart';
 import 'order_detail_screen.dart';
 import 'models/order_model.dart';
+import 'models/inventory_model.dart'; // Needed for pricing
 import 'services/firestore_service.dart';
 
 class ToGoOrdersScreen extends StatefulWidget {
@@ -21,6 +22,43 @@ class ToGoOrdersScreen extends StatefulWidget {
 
 class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
   final FirestoreService _firestoreService = FirestoreService();
+  Map<String, double> _priceMap = {}; // Local cache for prices
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrices();
+  }
+
+  void _loadPrices() {
+    _firestoreService.getInventoryStream().listen((items) {
+      if (mounted) {
+        setState(() {
+          _priceMap = {for (var item in items) item.name: item.price};
+        });
+      }
+    });
+  }
+
+  // Calculates total based on current prices
+  double _calculateTotal(OrderModel order) {
+    double total = 0.0;
+
+    order.tacoCounts.forEach((name, qty) {
+      total += (_priceMap[name] ?? 0.0) * qty;
+    });
+
+    order.simpleExtraCounts.forEach((name, qty) {
+      total += (_priceMap[name] ?? 0.0) * qty;
+    });
+
+    order.sodaCounts.forEach((name, temps) {
+      int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+      total += (_priceMap[name] ?? 0.0) * qty;
+    });
+
+    return total;
+  }
 
   // Helper to calculate served count
   int _getServedCount(OrderModel order) {
@@ -97,34 +135,6 @@ class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
     }
   }
 
-  void _showCheckPreview(BuildContext context) {
-    // Placeholder for Closing Process
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: kBackgroundColor,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-        ),
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Cerrar Turno / Corte", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
-            const SizedBox(height: 20),
-            const Text("Aquí se mostrará el total de todas las órdenes para llevar del día para hacer el corte de caja.", textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kTextColor)),
-            const SizedBox(height: 30),
-            NeumorphicButton(
-                text: "Cerrar Caja (Próximamente)",
-                onTap: () => Navigator.pop(context)
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -158,9 +168,6 @@ class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
                 },
               ),
             ),
-            // Closure Button for ALL To Go orders (End of Shift?)
-            // Or maybe specific closure is per customer?
-            // Usually To Go is pay-per-order.
           ],
         ),
       ),
@@ -218,7 +225,8 @@ class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
                           // --- CLOSURE BUTTON (Pay & Close) ---
                           GestureDetector(
                             onTap: () {
-                              // TODO: Show Bill Logic for this specific order
+                              double estimatedTotal = _calculateTotal(order); // Calculate dynamic total
+
                               showModalBottomSheet(
                                 context: context,
                                 backgroundColor: Colors.transparent,
@@ -230,9 +238,17 @@ class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
                                     children: [
                                       Text("Cobrar: $displayName", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
                                       const SizedBox(height: 20),
-                                      const Text("Total estimado: \$XXX.00", style: TextStyle(fontSize: 20, color: kAccentColor, fontWeight: FontWeight.bold)),
+                                      // Display calculated total
+                                      Text("Total estimado: \$${estimatedTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 20, color: kAccentColor, fontWeight: FontWeight.bold)),
                                       const SizedBox(height: 30),
-                                      NeumorphicButton(text: "Cobrar y Cerrar", onTap: () => Navigator.pop(context))
+                                      NeumorphicButton(
+                                          text: "Cobrar y Cerrar",
+                                          onTap: () async {
+                                            // Process checkout logic
+                                            await _firestoreService.processCheckout(order);
+                                            Navigator.pop(context);
+                                          }
+                                      )
                                     ],
                                   ),
                                 ),
