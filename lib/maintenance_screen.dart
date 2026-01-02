@@ -2,22 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'shared_styles.dart';
 import 'services/firestore_service.dart';
-import 'services/printer_service.dart'; // Ensure this import exists
+import 'services/printer_service.dart';
 import 'models/inventory_model.dart';
 
 class MaintenanceScreen extends StatelessWidget {
   const MaintenanceScreen({super.key});
 
-  // --- Show Printer Config Dialog ---
   void _showPrinterConfig(BuildContext context) async {
     final TextEditingController ipController = TextEditingController();
     final PrinterService printerService = PrinterService();
-
-    // Load current IP (Now fetches from Firestore)
     try {
       ipController.text = await printerService.getStoredIp();
     } catch (e) {
-      ipController.text = "192.168.1.200"; // Fallback
+      ipController.text = "192.168.1.200";
     }
 
     showDialog(
@@ -37,10 +34,7 @@ class MaintenanceScreen extends StatelessWidget {
                   child: TextField(
                     controller: ipController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: "Ej. 192.168.1.200"
-                    ),
+                    decoration: const InputDecoration(border: InputBorder.none, hintText: "Ej. 192.168.1.200"),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -48,10 +42,7 @@ class MaintenanceScreen extends StatelessWidget {
               ],
             ),
             actions: [
-              TextButton(
-                child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
-                onPressed: () => Navigator.pop(context),
-              ),
+              TextButton(child: const Text("Cancelar", style: TextStyle(color: Colors.grey)), onPressed: () => Navigator.pop(context)),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: kAccentColor),
                 child: const Text("Guardar", style: TextStyle(color: Colors.white)),
@@ -59,9 +50,7 @@ class MaintenanceScreen extends StatelessWidget {
                   await printerService.savePrinterIp(ipController.text);
                   if (context.mounted) {
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("IP Global actualizada: ${ipController.text}"))
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("IP Global actualizada: ${ipController.text}")));
                   }
                 },
               )
@@ -93,7 +82,6 @@ class MaintenanceScreen extends StatelessWidget {
 
                   final items = snapshot.data!;
 
-                  // Organize by sections
                   final tacos = items.where((i) => i.type == 'taco').toList();
                   final sodas = items.where((i) => i.type == 'soda').toList();
                   final extras = items.where((i) => i.type == 'extra').toList();
@@ -129,15 +117,7 @@ class MaintenanceScreen extends StatelessWidget {
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 10, bottom: 10),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: kTextColor,
-          fontSize: 18,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-        ),
-      ),
+      child: Text(title, style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
     );
   }
 
@@ -167,35 +147,17 @@ class MaintenanceScreen extends StatelessWidget {
         children: [
           GestureDetector(
             onTap: () => Navigator.of(context).pop(),
-            child: const NeumorphicContainer(
-              isCircle: true,
-              padding: EdgeInsets.all(12),
-              child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20),
-            ),
+            child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(12), child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20)),
           ),
           const SizedBox(width: 20),
-          const Expanded(
-            child: Text(
-              'Inventario',
-              style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-          ),
-          // --- PRINTER CONFIG BUTTON (NEW) ---
-          IconButton(
-            icon: const Icon(Icons.print, color: kAccentColor),
-            tooltip: "Configurar Impresora",
-            onPressed: () => _showPrinterConfig(context),
-          ),
-          // --- RESTORE BUTTON ---
+          const Expanded(child: Text('Inventario', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700))),
+          IconButton(icon: const Icon(Icons.print, color: kAccentColor), tooltip: "Configurar Impresora", onPressed: () => _showPrinterConfig(context)),
           IconButton(
             icon: const Icon(Icons.cloud_download_outlined, color: kAccentColor),
             tooltip: "Restaurar Menú",
             onPressed: () {
-              // Force update to sync local code prices with DB
               FirestoreService().resetInventoryToDefaults(forceUpdate: true);
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Menú restaurado a valores por defecto"))
-              );
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Menú restaurado a valores por defecto")));
             },
           )
         ],
@@ -206,16 +168,14 @@ class MaintenanceScreen extends StatelessWidget {
 
 class _InventoryItemCard extends StatefulWidget {
   final InventoryItem item;
-
   const _InventoryItemCard({required this.item});
-
   @override
   State<_InventoryItemCard> createState() => _InventoryItemCardState();
 }
 
 class _InventoryItemCardState extends State<_InventoryItemCard> {
   late TextEditingController _priceController;
-  late TextEditingController _productionController;
+  late TextEditingController _initialStockController; // Changed name to reflect new logic
   late bool _isActive;
   final FirestoreService _service = FirestoreService();
   bool _isDirty = false;
@@ -224,7 +184,7 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
   void initState() {
     super.initState();
     _priceController = TextEditingController(text: widget.item.price.toStringAsFixed(2));
-    _productionController = TextEditingController(text: widget.item.dailyProduction.toString());
+    _initialStockController = TextEditingController(text: widget.item.initialStock.toString());
     _isActive = widget.item.isActive;
   }
 
@@ -233,16 +193,17 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
     super.didUpdateWidget(oldWidget);
     if (widget.item != oldWidget.item) {
       _priceController.text = widget.item.price.toStringAsFixed(2);
-      _productionController.text = widget.item.dailyProduction.toString();
+      if (!_isDirty) {
+        _initialStockController.text = widget.item.initialStock.toString();
+      }
       _isActive = widget.item.isActive;
-      _isDirty = false;
     }
   }
 
   @override
   void dispose() {
     _priceController.dispose();
-    _productionController.dispose();
+    _initialStockController.dispose();
     super.dispose();
   }
 
@@ -256,15 +217,19 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
 
   void _saveChanges() {
     final newPrice = double.tryParse(_priceController.text) ?? 0.0;
-    final newProduction = int.tryParse(_productionController.text) ?? 0;
+    final newInitialStock = int.tryParse(_initialStockController.text) ?? 0;
 
-    // Create updated item
+    // When manually setting stock in Maintenance, we reset 'Current' to match 'Initial'
+    // This allows refilling the stock for the day.
+    final newCurrentStock = newInitialStock;
+
     final updatedItem = InventoryItem(
       id: widget.item.id,
       name: widget.item.name,
       type: widget.item.type,
       price: newPrice,
-      dailyProduction: newProduction,
+      currentStock: newCurrentStock,
+      initialStock: newInitialStock,
       isActive: _isActive,
     );
 
@@ -275,14 +240,7 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
     });
 
     FocusScope.of(context).unfocus();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("${widget.item.name} actualizado"),
-          backgroundColor: Colors.green,
-          duration: const Duration(milliseconds: 800),
-        )
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${widget.item.name} actualizado"), backgroundColor: Colors.green, duration: const Duration(milliseconds: 800)));
   }
 
   bool get _requiresProductionInput {
@@ -303,19 +261,11 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
           opacity: _isActive ? 1.0 : 0.6,
           child: Column(
             children: [
-              // --- Header: Icon, Name, Switch ---
               Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                        color: kBackgroundColor,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(color: Colors.white, offset: const Offset(-2, -2), blurRadius: 2),
-                          BoxShadow(color: kShadowColor.withOpacity(0.2), offset: const Offset(2, 2), blurRadius: 2),
-                        ]
-                    ),
+                    decoration: BoxDecoration(color: kBackgroundColor, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.white, offset: const Offset(-2, -2), blurRadius: 2), BoxShadow(color: kShadowColor.withOpacity(0.2), offset: const Offset(2, 2), blurRadius: 2)]),
                     child: _getIconForType(widget.item.type),
                   ),
                   const SizedBox(width: 15),
@@ -323,18 +273,8 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          widget.item.name,
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: _isActive ? kTextColor : Colors.grey
-                          ),
-                        ),
-                        Text(
-                          widget.item.type.toUpperCase(),
-                          style: TextStyle(color: kTextColor.withOpacity(0.5), fontSize: 12, letterSpacing: 1.0),
-                        ),
+                        Text(widget.item.name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _isActive ? kTextColor : Colors.grey)),
+                        Text(widget.item.type.toUpperCase(), style: TextStyle(color: kTextColor.withOpacity(0.5), fontSize: 12, letterSpacing: 1.0)),
                       ],
                     ),
                   ),
@@ -353,87 +293,48 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 15),
-
-              // --- Inputs Row ---
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Price Input
                   Expanded(
                     flex: 4,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.only(left: 4, bottom: 4),
-                          child: Text("PRECIO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                        ),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                        const Padding(padding: EdgeInsets.only(left: 4, bottom: 4), child: Text("PRECIO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey))),
+                        NeumorphicContainer(
+                          isInner: true,
+                          borderRadius: 10,
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           child: Row(
                             children: [
                               const Text("\$", style: TextStyle(fontWeight: FontWeight.bold, color: kAccentColor)),
                               const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: _priceController,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                  ),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor),
-                                  onChanged: (_) => _markDirty(),
-                                ),
-                              ),
+                              Expanded(child: TextField(controller: _priceController, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(border: InputBorder.none, isDense: true), style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor), onChanged: (_) => _markDirty())),
                             ],
                           ),
                         ),
                       ],
                     ),
                   ),
-
                   const SizedBox(width: 15),
-
-                  // Production Input
                   if (_requiresProductionInput) ...[
                     Expanded(
                       flex: 4,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.only(left: 4, bottom: 4),
-                            child: Text("PROD. HOY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
-                          ),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                          const Padding(padding: EdgeInsets.only(left: 4, bottom: 4), child: Text("PROD. HOY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey))),
+                          NeumorphicContainer(
+                            isInner: true,
+                            borderRadius: 10,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                             child: Row(
                               children: [
                                 const Text("#", style: TextStyle(fontWeight: FontWeight.bold, color: kAccentColor)),
                                 const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _productionController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      border: InputBorder.none,
-                                      isDense: true,
-                                    ),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor),
-                                    onChanged: (_) => _markDirty(),
-                                  ),
-                                ),
+                                Expanded(child: TextField(controller: _initialStockController, keyboardType: TextInputType.number, decoration: const InputDecoration(border: InputBorder.none, isDense: true), style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor), onChanged: (_) => _markDirty())),
                               ],
                             ),
                           ),
@@ -445,25 +346,12 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
                     const Spacer(flex: 4),
                     const SizedBox(width: 15),
                   ],
-
-                  // Save Button
                   GestureDetector(
                     onTap: _isDirty ? _saveChanges : null,
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _isDirty ? Colors.green : kBackgroundColor,
-                        shape: BoxShape.circle,
-                        boxShadow: _isDirty ? [] : [
-                          BoxShadow(color: Colors.white, offset: const Offset(-2, -2), blurRadius: 2),
-                          BoxShadow(color: kShadowColor.withOpacity(0.2), offset: const Offset(2, 2), blurRadius: 2),
-                        ],
-                      ),
-                      child: Icon(
-                          Icons.save,
-                          color: _isDirty ? Colors.white : Colors.grey.withOpacity(0.3),
-                          size: 20
-                      ),
+                      decoration: BoxDecoration(color: _isDirty ? Colors.green : kBackgroundColor, shape: BoxShape.circle, boxShadow: _isDirty ? [] : [BoxShadow(color: Colors.white, offset: const Offset(-2, -2), blurRadius: 2), BoxShadow(color: kShadowColor.withOpacity(0.2), offset: const Offset(2, 2), blurRadius: 2)]),
+                      child: Icon(Icons.save, color: _isDirty ? Colors.white : Colors.grey.withOpacity(0.3), size: 20),
                     ),
                   ),
                 ],
@@ -477,14 +365,10 @@ class _InventoryItemCardState extends State<_InventoryItemCard> {
 
   Widget _getIconForType(String type) {
     switch (type.toLowerCase()) {
-      case 'taco':
-        return const Text("🌮", style: TextStyle(fontSize: 24));
-      case 'soda':
-        return const Icon(Icons.local_drink, color: kAccentColor, size: 24);
-      case 'extra':
-        return const Icon(Icons.icecream, color: kAccentColor, size: 24);
-      default:
-        return const Icon(Icons.fastfood, color: kAccentColor, size: 24);
+      case 'taco': return const Icon(Icons.local_pizza, color: kAccentColor, size: 24);
+      case 'soda': return const Icon(Icons.local_drink, color: kAccentColor, size: 24);
+      case 'extra': return const Icon(Icons.icecream, color: kAccentColor, size: 24);
+      default: return const Icon(Icons.fastfood, color: kAccentColor, size: 24);
     }
   }
 }

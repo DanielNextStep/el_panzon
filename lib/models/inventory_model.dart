@@ -6,7 +6,8 @@ class InventoryItem {
   final String name;
   final String type; // 'taco', 'soda', 'extra'
   final double price;
-  final int dailyProduction;
+  final int currentStock; // Was dailyProduction - Now represents remaining stock
+  final int initialStock; // Total produced today
   final bool isActive;
 
   InventoryItem({
@@ -14,7 +15,8 @@ class InventoryItem {
     required this.name,
     required this.type,
     this.price = 0.0,
-    this.dailyProduction = 0,
+    this.currentStock = 0,
+    this.initialStock = 0,
     this.isActive = true,
   });
 
@@ -23,7 +25,8 @@ class InventoryItem {
       'name': name,
       'type': type,
       'price': price,
-      'dailyProduction': dailyProduction,
+      'currentStock': currentStock,
+      'initialStock': initialStock,
       'isActive': isActive,
     };
   }
@@ -35,7 +38,9 @@ class InventoryItem {
       name: data['name'] ?? '',
       type: data['type'] ?? 'taco',
       price: (data['price'] ?? 0.0).toDouble(),
-      dailyProduction: (data['dailyProduction'] ?? 0).toInt(),
+      // Handle migration: if currentStock doesn't exist, use old dailyProduction
+      currentStock: (data['currentStock'] ?? data['dailyProduction'] ?? 0).toInt(),
+      initialStock: (data['initialStock'] ?? 0).toInt(),
       isActive: data['isActive'] ?? true,
     );
   }
@@ -58,10 +63,18 @@ class Inventory {
     final extras = <String, bool>{};
 
     for (var item in items) {
+      // Only include if active AND has stock (if tracking stock)
+      bool isAvailable = item.isActive;
+
+      // Optional: Auto-disable if out of stock for tracked items
+      if (item.initialStock > 0 && item.currentStock <= 0) {
+        isAvailable = false;
+      }
+
       if (item.type == 'taco') {
-        flavors[item.name] = item.isActive;
+        flavors[item.name] = isAvailable;
       } else {
-        extras[item.name] = item.isActive;
+        extras[item.name] = isAvailable;
       }
     }
     return Inventory(flavors: flavors, extras: extras);

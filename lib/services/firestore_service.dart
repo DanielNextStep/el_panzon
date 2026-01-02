@@ -34,22 +34,23 @@ class FirestoreService {
   }
 
   Future<void> resetInventoryToDefaults({bool forceUpdate = false}) async {
+    // Note: 'currentStock' starts equal to 'initialStock'
     final defaults = [
-      {'name': 'Chicharron', 'type': 'taco', 'price': 18.0, 'dailyProduction': 100, 'isActive': true},
-      {'name': 'Frijol con Chorizo', 'type': 'taco', 'price': 18.0, 'dailyProduction': 100, 'isActive': true},
-      {'name': 'Papa', 'type': 'taco', 'price': 18.0, 'dailyProduction': 100, 'isActive': true},
-      {'name': 'Carnitas en Morita', 'type': 'taco', 'price': 22.0, 'dailyProduction': 80, 'isActive': true},
-      {'name': 'Huevo en Pasilla', 'type': 'taco', 'price': 18.0, 'dailyProduction': 80, 'isActive': true},
-      {'name': 'Tinga', 'type': 'taco', 'price': 20.0, 'dailyProduction': 80, 'isActive': true},
-      {'name': 'Adobo', 'type': 'taco', 'price': 20.0, 'dailyProduction': 80, 'isActive': true},
-      {'name': 'Arroz con leche', 'type': 'extra', 'price': 25.0, 'dailyProduction': 40, 'isActive': true},
-      {'name': 'Café de Olla', 'type': 'soda', 'price': 20.0, 'dailyProduction': 50, 'isActive': true},
-      {'name': 'Coca', 'type': 'soda', 'price': 25.0, 'dailyProduction': 0, 'isActive': true},
-      {'name': 'Boing de Mango', 'type': 'soda', 'price': 22.0, 'dailyProduction': 0, 'isActive': true},
-      {'name': 'Boing de Guayaba', 'type': 'soda', 'price': 22.0, 'dailyProduction': 0, 'isActive': true},
-      {'name': 'Agua Embotellada', 'type': 'soda', 'price': 15.0, 'dailyProduction': 0, 'isActive': true},
-      {'name': 'Té', 'type': 'soda', 'price': 15.0, 'dailyProduction': 0, 'isActive': true},
-      {'name': 'Cafe Soluble', 'type': 'soda', 'price': 18.0, 'dailyProduction': 0, 'isActive': true},
+      {'name': 'Chicharron', 'type': 'taco', 'price': 18.0, 'currentStock': 100, 'initialStock': 100, 'isActive': true},
+      {'name': 'Frijol con Chorizo', 'type': 'taco', 'price': 18.0, 'currentStock': 100, 'initialStock': 100, 'isActive': true},
+      {'name': 'Papa', 'type': 'taco', 'price': 18.0, 'currentStock': 100, 'initialStock': 100, 'isActive': true},
+      {'name': 'Carnitas en Morita', 'type': 'taco', 'price': 22.0, 'currentStock': 80, 'initialStock': 80, 'isActive': true},
+      {'name': 'Huevo en Pasilla', 'type': 'taco', 'price': 18.0, 'currentStock': 80, 'initialStock': 80, 'isActive': true},
+      {'name': 'Tinga', 'type': 'taco', 'price': 20.0, 'currentStock': 80, 'initialStock': 80, 'isActive': true},
+      {'name': 'Adobo', 'type': 'taco', 'price': 20.0, 'currentStock': 80, 'initialStock': 80, 'isActive': true},
+      {'name': 'Arroz con leche', 'type': 'extra', 'price': 25.0, 'currentStock': 40, 'initialStock': 40, 'isActive': true},
+      {'name': 'Café de Olla', 'type': 'soda', 'price': 20.0, 'currentStock': 50, 'initialStock': 50, 'isActive': true},
+      {'name': 'Coca', 'type': 'soda', 'price': 25.0, 'currentStock': 0, 'initialStock': 0, 'isActive': true},
+      {'name': 'Boing de Mango', 'type': 'soda', 'price': 22.0, 'currentStock': 0, 'initialStock': 0, 'isActive': true},
+      {'name': 'Boing de Guayaba', 'type': 'soda', 'price': 22.0, 'currentStock': 0, 'initialStock': 0, 'isActive': true},
+      {'name': 'Agua Embotellada', 'type': 'soda', 'price': 15.0, 'currentStock': 0, 'initialStock': 0, 'isActive': true},
+      {'name': 'Té', 'type': 'soda', 'price': 15.0, 'currentStock': 0, 'initialStock': 0, 'isActive': true},
+      {'name': 'Cafe Soluble', 'type': 'soda', 'price': 18.0, 'currentStock': 0, 'initialStock': 0, 'isActive': true},
     ];
 
     for (var map in defaults) {
@@ -81,7 +82,6 @@ class FirestoreService {
     required String itemName,
     String? sodaSubType,
   }) async {
-    // 1. Find Inventory Doc Ref (Query outside transaction is allowed/efficient)
     final invQuery = await _inventoryCollection.where('name', isEqualTo: itemName).limit(1).get();
     DocumentReference? inventoryRef;
     if (invQuery.docs.isNotEmpty) {
@@ -89,20 +89,23 @@ class FirestoreService {
     }
 
     return _db.runTransaction((transaction) async {
-      final orderRef = _ordersRef.doc(orderId);
+      print("Starting transaction for $itemName...");
 
-      // --- STEP 1: ALL READS MUST HAPPEN FIRST ---
+      // READS
+      final orderRef = _ordersRef.doc(orderId);
       final orderSnapshot = await transaction.get(orderRef);
 
-      // We must read the inventory NOW, before writing to orderRef
       DocumentSnapshot? invSnapshot;
       if (inventoryRef != null) {
         invSnapshot = await transaction.get(inventoryRef);
       }
 
-      if (!orderSnapshot.exists) return;
+      if (!orderSnapshot.exists) {
+        print("Transaction Aborted: Order not found");
+        return;
+      }
 
-      // --- STEP 2: CALCULATE LOGIC ---
+      // LOGIC
       final order = OrderModel.fromSnapshot(orderSnapshot);
       Map<String, dynamic> updateData = {};
       bool shouldUpdateOrder = false;
@@ -145,32 +148,34 @@ class FirestoreService {
         }
       }
 
-      if (!shouldUpdateOrder) return;
+      if (!shouldUpdateOrder) {
+        print("Transaction Aborted: No updates needed");
+        return;
+      }
 
-      // --- STEP 3: ALL WRITES LAST ---
-
-      // Write 1: Update Order
+      // WRITES
       transaction.update(orderRef, updateData);
 
-      // Write 2: Deduct Inventory (if applicable)
       if (invSnapshot != null && invSnapshot.exists) {
         final data = invSnapshot.data() as Map<String, dynamic>;
-        int currentProd = data['dailyProduction'] ?? 0;
-        if (currentProd > 0) {
-          transaction.update(inventoryRef!, {'dailyProduction': currentProd - 1});
+
+        // Use 'currentStock' logic
+        int currentStock = data['currentStock'] ?? data['dailyProduction'] ?? 0;
+        int initialStock = data['initialStock'] ?? 0;
+
+        // Decrease if tracking is enabled (initialStock > 0) AND stock is available
+        if (currentStock > 0 && initialStock > 0) {
+          transaction.update(inventoryRef!, {'currentStock': currentStock - 1});
         }
       }
     });
   }
 
-  // --- CHECKOUT LOGIC (Archive & Delete) ---
+  // --- CHECKOUT LOGIC ---
   Future<void> processCheckout(OrderModel order) async {
-    // 1. Save to Sales History
     Map<String, dynamic> salesData = order.toMap();
     salesData['closedAt'] = FieldValue.serverTimestamp();
     await _salesRef.add(salesData);
-
-    // 2. Delete from Active Orders
     await _ordersRef.doc(order.id).delete();
   }
 
@@ -193,7 +198,6 @@ class FirestoreService {
     });
   }
 
-  // --- SALES HISTORY STREAM ---
   Stream<List<OrderModel>> getSalesHistoryStream() {
     return _salesRef
         .orderBy('timestamp', descending: true)
@@ -201,6 +205,20 @@ class FirestoreService {
         .snapshots()
         .map((snapshot) {
       return snapshot.docs.map((doc) => OrderModel.fromSnapshot(doc)).toList();
+    });
+  }
+
+  Stream<Set<int>> getBusyTablesStream() {
+    return _ordersRef.snapshots().map((snapshot) {
+      final busyTables = <int>{};
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final tableNum = data['tableNumber'] as int?;
+        if (tableNum != null && tableNum > 0) {
+          busyTables.add(tableNum);
+        }
+      }
+      return busyTables;
     });
   }
 }
