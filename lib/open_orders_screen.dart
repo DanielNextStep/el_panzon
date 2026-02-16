@@ -39,12 +39,34 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
                     return const Center(child: Text("No hay órdenes activas"));
                   }
 
-                  return ListView.builder(
+                  final pendingOrders = allOrders.where((o) => !o.isFullyServed).toList();
+                  final completedOrders = allOrders.where((o) => o.isFullyServed).toList();
+
+                  return ListView(
                     padding: const EdgeInsets.all(20),
-                    itemCount: allOrders.length,
-                    itemBuilder: (context, index) {
-                      return _OrderKitchenCard(order: allOrders[index]);
-                    },
+                    children: [
+                      // --- PENDING ORDERS ---
+                      if (pendingOrders.isNotEmpty) ...[
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 10, left: 5),
+                          child: Text("PENDIENTES", style: TextStyle(color: kAccentColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        ...pendingOrders.map((order) => _OrderKitchenCard(order: order, key: ValueKey(order.id))),
+                      ] else if (completedOrders.isNotEmpty) 
+                         const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("Todo al día", style: TextStyle(color: Colors.grey)))),
+
+                      // --- COMPLETED ORDERS ---
+                      if (completedOrders.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        Divider(color: Colors.grey.withOpacity(0.3)),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 10, bottom: 10, left: 5),
+                          child: Text("COMPLETADOS / SURTIDOS", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        ...completedOrders.map((order) => _OrderKitchenCard(order: order, key: ValueKey(order.id), isInitiallyExpanded: false)),
+                        const SizedBox(height: 40),
+                      ],
+                    ],
                   );
                 },
               ),
@@ -70,7 +92,7 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
             ),
           ),
           const Text(
-            'Cocina / Servicio',
+            'open_orders_screen.dart',
             style: TextStyle(color: kTextColor, fontSize: 22, fontWeight: FontWeight.w700),
           ),
           const SizedBox(width: 44),
@@ -82,7 +104,13 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
 
 class _OrderKitchenCard extends StatefulWidget {
   final OrderModel order;
-  const _OrderKitchenCard({required this.order});
+  final bool isInitiallyExpanded;
+  
+  const _OrderKitchenCard({
+    required this.order, 
+    this.isInitiallyExpanded = true,
+    super.key
+  });
 
   @override
   State<_OrderKitchenCard> createState() => _OrderKitchenCardState();
@@ -91,10 +119,12 @@ class _OrderKitchenCard extends StatefulWidget {
 class _OrderKitchenCardState extends State<_OrderKitchenCard> {
   Timer? _timer;
   String _timeElapsed = '';
+  late bool _isExpanded;
 
   @override
   void initState() {
     super.initState();
+    _isExpanded = widget.isInitiallyExpanded;
     _updateTimeElapsed();
     _timer = Timer.periodic(const Duration(minutes: 1), (_) => _updateTimeElapsed());
   }
@@ -182,44 +212,56 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
         child: Column(
           children: [
             // --- HEADER ---
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              decoration: BoxDecoration(
-                  color: kBackgroundColor,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-                  border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.2)))
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        widget.order.tableNumber == 0 ? Icons.shopping_bag : Icons.table_restaurant,
-                        color: kAccentColor,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(headerTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kTextColor)),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                      const SizedBox(width: 5),
-                      Text(_timeElapsed, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                    ],
-                  )
-                ],
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _isExpanded = !_isExpanded;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                decoration: BoxDecoration(
+                    color: kBackgroundColor,
+                    borderRadius: BorderRadius.circular(15), // Rounded all if collapsed
+                    // Only display bottom border if expanded
+                    border: _isExpanded ? Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.2))) : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          widget.order.tableNumber == 0 ? Icons.shopping_bag : Icons.table_restaurant,
+                          color: kAccentColor,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(headerTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kTextColor)),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                        const SizedBox(width: 5),
+                        Text(_timeElapsed, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                        const SizedBox(width: 15),
+                        // Collapse Icon
+                        Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: kAccentColor),
+                      ],
+                    )
+                  ],
+                ),
               ),
             ),
 
-            // --- MATRIX VIEW ---
-            if (sortedItems.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text("Sin items", style: TextStyle(color: Colors.grey)),
-              )
-            else
+            // --- MATRIX VIEW (Collapsible) ---
+            if (_isExpanded)
+              if (sortedItems.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text("Sin items", style: TextStyle(color: Colors.grey)),
+                )
+              else
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
@@ -264,29 +306,42 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
                             return const DataCell(Center(child: Text("-", style: TextStyle(color: Colors.grey))));
                           }
 
-                          // Logic: Serve ALL Remaining
+                          // Logic: Show PENDING (Remaining)
                           int served = foundItem.extras['served'] ?? 0;
-                          bool isDone = served >= foundItem.quantity;
+                          int pending = foundItem.quantity - served;
+                          
+                          // If the WHOLE order is fully served (Completed Section), show the Total Served.
+                          // If the order is still Active (Pending Section), show only Pending (or '-' if this item is done).
+                          bool isOrderComplete = widget.order.isFullyServed;
+                          
+                          String displayText;
+                          if (isOrderComplete) {
+                            displayText = "${foundItem.quantity}"; // Show Total
+                          } else {
+                            displayText = pending > 0 ? "$pending" : "-"; // Show Pending or Dash
+                          }
+                          
+                          bool isItemDone = pending <= 0;
 
                           return DataCell(
                             Center(
                               child: InkWell(
-                                onTap: isDone ? null : () => _serveItem(pId, itemIndex, foundItem!.name),
+                                onTap: isItemDone ? null : () => _serveItem(pId, itemIndex, foundItem!.name),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
-                                      color: isDone ? Colors.green.withOpacity(0.2) : kAccentColor.withOpacity(0.1),
+                                      color: isItemDone ? Colors.green.withOpacity(0.1) : kAccentColor.withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(8),
                                       border: Border.all(
-                                          color: isDone ? Colors.green : kAccentColor,
+                                          color: isItemDone ? Colors.green.withOpacity(0.3) : kAccentColor,
                                           width: 1
                                       )
                                   ),
                                   child: Text(
-                                    "${foundItem.quantity}",
+                                    displayText,
                                     style: TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        color: isDone ? Colors.green : kAccentColor
+                                        color: isItemDone ? Colors.green : kAccentColor
                                     ),
                                   ),
                                 ),
@@ -300,44 +355,7 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
                 ),
               ),
 
-            // --- FOOTER ACTIONS ---
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.1)))
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        // TODO: Print logic integration
-                      },
-                      icon: const Icon(Icons.print, size: 18),
-                      label: const Text("TICKET"),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: kTextColor,
-                        side: const BorderSide(color: kTextColor),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        // TODO: "Serve All" logic
-                      },
-                      icon: const Icon(Icons.check_circle_outline, size: 18),
-                      label: const Text("LISTO"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
+
           ],
         ),
       ),

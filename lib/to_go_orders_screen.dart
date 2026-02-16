@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'shared_styles.dart';
+import 'table_order_manager.dart'; // Import TableOrderManager
 import 'order_screen.dart';
 import 'order_detail_screen.dart';
 import 'models/order_model.dart';
 import 'models/inventory_model.dart'; // Needed for pricing
 import 'services/firestore_service.dart';
+import 'checkout_screen.dart';
 
 class ToGoOrdersScreen extends StatefulWidget {
   final Map<String, bool> availableFlavors;
@@ -22,52 +24,34 @@ class ToGoOrdersScreen extends StatefulWidget {
 
 class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
   final FirestoreService _firestoreService = FirestoreService();
-  Map<String, double> _priceMap = {}; // Local cache for prices
 
-  @override
-  void initState() {
-    super.initState();
-    _loadPrices();
-  }
-
-  void _loadPrices() {
-    _firestoreService.getInventoryStream().listen((items) {
-      if (mounted) {
-        setState(() {
-          _priceMap = {for (var item in items) item.name: item.price};
-        });
-      }
-    });
-  }
-
-  // Calculates total based on current prices
-  double _calculateTotal(OrderModel order) {
-    double total = 0.0;
-
-    order.tacoCounts.forEach((name, qty) {
-      total += (_priceMap[name] ?? 0.0) * qty;
-    });
-
-    order.simpleExtraCounts.forEach((name, qty) {
-      total += (_priceMap[name] ?? 0.0) * qty;
-    });
-
-    order.sodaCounts.forEach((name, temps) {
-      int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
-      total += (_priceMap[name] ?? 0.0) * qty;
-    });
-
-    return total;
-  }
 
   // Helper to calculate served count
   int _getServedCount(OrderModel order) {
     int total = 0;
-    order.tacoServed.forEach((_, count) => total += count);
-    order.simpleExtraServed.forEach((_, count) => total += count);
-    order.sodaServed.forEach((_, temps) {
-      total += (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
-    });
+
+    // 1. Check New Structure (People)
+    if (order.people.isNotEmpty) {
+      order.people.forEach((_, person) {
+        for (var item in person.items) {
+          total += (item.extras['served'] as int? ?? 0);
+        }
+      });
+    }
+
+    // 2. Check Legacy Structure (Fallback / Backward Compatibility)
+    // We add this because some old orders might only have legacy data.
+    // However, if we migrated to only use People for new orders, we should be careful not to double count
+    // if we ever decide to sync them. But for now, they are either/or in my implementation.
+    // If 'people' is empty, we check legacy.
+    if (order.people.isEmpty) {
+      order.tacoServed.forEach((_, count) => total += count);
+      order.simpleExtraServed.forEach((_, count) => total += count);
+      order.sodaServed.forEach((_, temps) {
+        total += (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+      });
+    }
+
     return total;
   }
 
@@ -81,58 +65,49 @@ class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
   }
 
   void _navigateToAddOrder(BuildContext context, int nextOrderNumber) async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => OrderScreen(
-          orderType: 'Para Llevar',
-          tableNumber: null, // Null means To Go (Table 0 in DB)
-          orderNumber: nextOrderNumber,
-          availableFlavors: widget.availableFlavors,
-          availableExtras: widget.availableExtras,
-          existingOrder: null,
-        ),
-      ),
+    // 1. Create Initial Empty Order
+    final newOrder = OrderModel(
+      tableNumber: 0, // 0 = To Go
+      orderNumber: nextOrderNumber,
+      totalItems: 0,
+      timestamp: DateTime.now(),
+      people: {},
+      tacoCounts: {}, sodaCounts: {}, simpleExtraCounts: {},
+      tacoServed: {}, sodaServed: {}, simpleExtraServed: {},
     );
 
-    if (result != null && result is OrderModel) {
-      await _firestoreService.addOrder(result);
+    // 2. Add to Firestore to get ID
+    // We assume addOrder returns DocumentReference
+    final ref = await _firestoreService.addOrder(newOrder);
+
+    // 3. Navigate to Manager with ID
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TableOrderManagerScreen(
+            tableNumber: 0,
+            orderId: ref.id,
+            availableFlavors: widget.availableFlavors,
+            availableExtras: widget.availableExtras,
+          ),
+        ),
+      );
     }
   }
 
-  void _navigateToEditOrder(BuildContext context, OrderModel order) async {
-    final result = await Navigator.push(
+  void _navigateToEditOrder(BuildContext context, OrderModel order) {
+    Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => OrderScreen(
-          orderType: 'Para Llevar',
-          tableNumber: null,
-          orderNumber: order.orderNumber,
+        builder: (context) => TableOrderManagerScreen(
+          tableNumber: 0,
+          orderId: order.id,
           availableFlavors: widget.availableFlavors,
           availableExtras: widget.availableExtras,
-          existingOrder: order,
         ),
       ),
     );
-
-    if (result != null && result is OrderModel) {
-      // Preserve ID and Served counts
-      final updatedOrder = OrderModel(
-        id: order.id,
-        tableNumber: 0,
-        orderNumber: result.orderNumber,
-        totalItems: result.totalItems,
-        timestamp: order.timestamp,
-        customerName: result.customerName,
-        tacoCounts: result.tacoCounts,
-        sodaCounts: result.sodaCounts,
-        simpleExtraCounts: result.simpleExtraCounts,
-        tacoServed: order.tacoServed,
-        sodaServed: order.sodaServed,
-        simpleExtraServed: order.simpleExtraServed,
-      );
-      await _firestoreService.updateOrder(updatedOrder);
-    }
   }
 
   @override
@@ -225,32 +200,10 @@ class _ToGoOrdersScreenState extends State<ToGoOrdersScreen> {
                           // --- CLOSURE BUTTON (Pay & Close) ---
                           GestureDetector(
                             onTap: () {
-                              double estimatedTotal = _calculateTotal(order); // Calculate dynamic total
-
-                              showModalBottomSheet(
-                                context: context,
-                                backgroundColor: Colors.transparent,
-                                builder: (context) => Container(
-                                  decoration: const BoxDecoration(color: kBackgroundColor, borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
-                                  padding: const EdgeInsets.all(28),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text("Cobrar: $displayName", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kTextColor)),
-                                      const SizedBox(height: 20),
-                                      // Display calculated total
-                                      Text("Total estimado: \$${estimatedTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 20, color: kAccentColor, fontWeight: FontWeight.bold)),
-                                      const SizedBox(height: 30),
-                                      NeumorphicButton(
-                                          text: "Cobrar y Cerrar",
-                                          onTap: () async {
-                                            // Process checkout logic
-                                            await _firestoreService.processCheckout(order);
-                                            Navigator.pop(context);
-                                          }
-                                      )
-                                    ],
-                                  ),
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => CheckoutScreen(order: order),
                                 ),
                               );
                             },

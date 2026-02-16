@@ -156,27 +156,50 @@ class OrderModel {
     };
   }
 
-  // Helper to check if order is fully served (Legacy logic)
+  // Helper to check if order is fully served
   bool get isFullyServed {
-    bool check(Map<String, int> ordered, Map<String, int> served) {
-      for (var entry in ordered.entries) {
-        if ((served[entry.key] ?? 0) < entry.value) return false;
+    // 1. Check People (New Structure)
+    if (people.isNotEmpty) {
+      for (var personKey in people.keys) {
+        final person = people[personKey];
+        if (person == null) continue;
+
+        for (var item in person.items) {
+          int served = item.extras['served'] ?? 0;
+          if (served < item.quantity) {
+            return false;
+          }
+        }
       }
       return true;
     }
 
-    if (!check(tacoCounts, tacoServed)) return false;
-    if (!check(simpleExtraCounts, simpleExtraServed)) return false;
+    // 2. Check Legacy Fields (Fallback for To Go / Old Orders)
+    if (tacoCounts.isNotEmpty) {
+      for (var entry in tacoCounts.entries) {
+        int served = tacoServed[entry.key] ?? 0;
+        if (served < entry.value) return false;
+      }
+    }
 
-    // Check sodas
-    for (var flavor in sodaCounts.keys) {
-      int coldOrdered = sodaCounts[flavor]!['Frío'] ?? 0;
-      int warmOrdered = sodaCounts[flavor]!['Al Tiempo'] ?? 0;
-      int coldServed = sodaServed[flavor]?['Frío'] ?? 0;
-      int warmServed = sodaServed[flavor]?['Al Tiempo'] ?? 0;
+    if (simpleExtraCounts.isNotEmpty) {
+      for (var entry in simpleExtraCounts.entries) {
+        int served = simpleExtraServed[entry.key] ?? 0;
+        if (served < entry.value) return false;
+      }
+    }
 
-      if (coldServed < coldOrdered) return false;
-      if (warmServed < warmOrdered) return false;
+    if (sodaCounts.isNotEmpty) {
+      for (var entry in sodaCounts.entries) {
+        String flavor = entry.key;
+        Map<String, int> temps = entry.value;
+        Map<String, int> servedTemps = sodaServed[flavor] ?? {};
+        
+        int totalQty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+        int totalServed = (servedTemps['Frío'] ?? 0) + (servedTemps['Al Tiempo'] ?? 0);
+        
+        if (totalServed < totalQty) return false;
+      }
     }
 
     return true;

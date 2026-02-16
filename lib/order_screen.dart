@@ -56,8 +56,11 @@ class _OrderScreenState extends State<OrderScreen> {
     final items = await _firestoreService.getInventoryStream().first;
 
     // 2. Dynamically build the list of Sodas based on 'type' field in DB
+    // CORRECTION: Exclude hot drinks that might be categorized as 'soda' or beverage but don't need temperature
+    final hotDrinks = ['Té', 'Café de Olla', 'Café Soluble'];
+    
     _sodaFlavors = items
-        .where((item) => item.type == 'soda')
+        .where((item) => item.type == 'soda' && !hotDrinks.contains(item.name))
         .map((item) => item.name)
         .toList();
 
@@ -70,6 +73,7 @@ class _OrderScreenState extends State<OrderScreen> {
     _simpleExtraCounts = {};
     widget.availableExtras.forEach((extra, isAvailable) {
       // Logic: If available AND not 'Refrescos' placeholder AND NOT in our dynamic soda list
+      // This will now include the excluded hotDrinks because they are no longer in _sodaFlavors
       if (isAvailable && extra != 'Refrescos' && !_sodaFlavors.contains(extra)) {
         _simpleExtraCounts[extra] = 0;
       }
@@ -88,22 +92,74 @@ class _OrderScreenState extends State<OrderScreen> {
       _nameController.text = widget.existingOrder!.customerName ?? '';
       _selectedSalsas = List.from(widget.existingOrder!.salsas);
 
-      widget.existingOrder!.tacoCounts.forEach((flavor, count) {
-        if (_tacoCounts.containsKey(flavor)) _tacoCounts[flavor] = count;
-      });
+      // --- LOGIC TO LOAD FROM 'PEOPLE' (New Structure) ---
+      if (widget.existingOrder!.people.isNotEmpty) {
+        widget.existingOrder!.people.forEach((personId, personOrder) {
+          for (var item in personOrder.items) {
+             // Tacos
+             if (_tacoCounts.containsKey(item.name)) {
+               int served = item.extras['served'] ?? 0;
+               int remaining = item.quantity - served;
+               if (remaining > 0) {
+                 _tacoCounts[item.name] = (_tacoCounts[item.name] ?? 0) + remaining;
+               }
+             }
+             // Extras
+             else if (_simpleExtraCounts.containsKey(item.name)) {
+               int served = item.extras['served'] ?? 0;
+               int remaining = item.quantity - served;
+               if (remaining > 0) {
+                 _simpleExtraCounts[item.name] = (_simpleExtraCounts[item.name] ?? 0) + remaining;
+               }
+             }
+             // Sodas
+             else if (_sodaCounts.containsKey(item.name)) {
+               String temp = item.extras['temp'] ?? 'Frío';
+               int served = item.extras['served'] ?? 0;
+               int remaining = item.quantity - served;
+               
+               if (remaining > 0 && _sodaCounts[item.name]!.containsKey(temp)) {
+                 _sodaCounts[item.name]![temp] = (_sodaCounts[item.name]![temp] ?? 0) + remaining;
+               }
+             }
+          }
+        });
 
-      widget.existingOrder!.simpleExtraCounts.forEach((extra, count) {
-        if (_simpleExtraCounts.containsKey(extra)) _simpleExtraCounts[extra] = count;
-      });
+      } else {
+        // --- FALLBACK: Legacy Loading ---
+        widget.existingOrder!.tacoCounts.forEach((flavor, totalCount) {
+          if (_tacoCounts.containsKey(flavor)) {
+            int served = widget.existingOrder!.tacoServed[flavor] ?? 0;
+            int remaining = totalCount - served;
+            _tacoCounts[flavor] = remaining > 0 ? remaining : 0;
+          }
+        });
 
-      widget.existingOrder!.sodaCounts.forEach((flavor, temps) {
-        // If this legacy order has a soda that is now inactive, we still want to show it ideally,
-        // or put it in _sodaCounts if it matches our dynamic list.
-        if (_sodaFlavors.contains(flavor)) {
-          _sodaCounts.putIfAbsent(flavor, () => {'Frío': 0, 'Al Tiempo': 0});
-          _sodaCounts[flavor] = Map<String, int>.from(temps);
-        }
-      });
+        widget.existingOrder!.simpleExtraCounts.forEach((extra, totalCount) {
+          if (_simpleExtraCounts.containsKey(extra)) {
+            int served = widget.existingOrder!.simpleExtraServed[extra] ?? 0;
+            int remaining = totalCount - served;
+            _simpleExtraCounts[extra] = remaining > 0 ? remaining : 0;
+          }
+        });
+
+        widget.existingOrder!.sodaCounts.forEach((flavor, temps) {
+          if (_sodaFlavors.contains(flavor)) {
+             _sodaCounts.putIfAbsent(flavor, () => {'Frío': 0, 'Al Tiempo': 0});
+            
+            int coldTotal = temps['Frío'] ?? 0;
+            int coldServed = widget.existingOrder!.sodaServed[flavor]?['Frío'] ?? 0;
+            int coldRemaining = coldTotal - coldServed;
+
+            int warmTotal = temps['Al Tiempo'] ?? 0;
+            int warmServed = widget.existingOrder!.sodaServed[flavor]?['Al Tiempo'] ?? 0;
+            int warmRemaining = warmTotal - warmServed;
+
+            _sodaCounts[flavor]!['Frío'] = coldRemaining > 0 ? coldRemaining : 0;
+            _sodaCounts[flavor]!['Al Tiempo'] = warmRemaining > 0 ? warmRemaining : 0;
+          }
+        });
+      }
     }
 
     _calculateTotal();
@@ -140,42 +196,118 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   void _saveOrder() {
-    final finalTacos = Map<String, int>.from(_tacoCounts)..removeWhere((_, v) => v == 0);
-    final finalExtras = Map<String, int>.from(_simpleExtraCounts)..removeWhere((_, v) => v == 0);
-    final finalSodas = <String, Map<String, int>>{};
+    // 1. Get Current "Visible" Counts (New + Unserved)
+    final currentTacos = Map<String, int>.from(_tacoCounts)..removeWhere((k, v) => v == 0);
+    final currentExtras = Map<String, int>.from(_simpleExtraCounts)..removeWhere((k, v) => v == 0);
+    final currentSodas = <String, Map<String, int>>{};
 
     _sodaCounts.forEach((key, value) {
-      int total = value['Frío']! + value['Al Tiempo']!;
-      if (total > 0) {
-        finalSodas[key] = Map<String, int>.from(value);
-      }
+       int total = value['Frío']! + value['Al Tiempo']!;
+       if (total > 0) {
+          currentSodas[key] = Map<String, int>.from(value);
+       }
     });
 
-    int totalItems = 0;
-    finalTacos.values.forEach((v) => totalItems += v);
-    finalExtras.values.forEach((v) => totalItems += v);
-    finalSodas.values.forEach((v) => totalItems += (v['Frío']! + v['Al Tiempo']!));
+    int totalItems = 0; // Temporary total, will be recalculated
+    currentTacos.values.forEach((v) => totalItems += v);
+    currentExtras.values.forEach((v) => totalItems += v);
+    currentSodas.values.forEach((v) => totalItems += (v['Frío']! + v['Al Tiempo']!));
 
     if (totalItems == 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("La orden no puede estar vacía")));
       return;
     }
 
+    // --- CONSTRUCT PERSON ORDER ---
+    List<OrderItem> allItems = [];
+
+    // Helper to add items
+    void addItem(String name, int qty, Map<String, dynamic> extras) {
+      if (qty > 0) {
+        allItems.add(OrderItem(name: name, quantity: qty, extras: extras));
+      }
+    }
+
+    // A. Add "Remaining" (Active) Items from UI
+    currentTacos.forEach((name, qty) => addItem(name, qty, {}));
+    currentExtras.forEach((name, qty) => addItem(name, qty, {}));
+    currentSodas.forEach((name, temps) {
+      if (temps['Frío']! > 0) addItem(name, temps['Frío']!, {'temp': 'Frío'});
+      if (temps['Al Tiempo']! > 0) addItem(name, temps['Al Tiempo']!, {'temp': 'Al Tiempo'});
+    });
+
+    // B. Re-Integrate "Already Served" Items from Existing Order
+    List<Map<String, dynamic>> finalItemsMap = allItems.map((e) => e.toMap()).toList();
+
+    if (widget.existingOrder != null && widget.existingOrder!.people.isNotEmpty) {
+      widget.existingOrder!.people.forEach((_, person) {
+        for (var oldItem in person.items) {
+           int oldServed = oldItem.extras['served'] ?? 0;
+           if (oldServed > 0) {
+              String oldName = oldItem.name;
+              String? oldTemp = oldItem.extras['temp'];
+              
+              // Find in finalItemsMap
+              var matchIndex = finalItemsMap.indexWhere((m) {
+                 bool sameName = m['name'] == oldName;
+                 bool sameTemp = m['extras']['temp'] == oldTemp;
+                 return sameName && sameTemp;
+              });
+              
+              if (matchIndex != -1) {
+                // Merge
+                var existing = finalItemsMap[matchIndex];
+                int currentQty = existing['quantity'];
+                existing['quantity'] = currentQty + oldServed;
+                
+                Map<String, dynamic> extras = existing['extras'] ?? {};
+                extras['served'] = (extras['served'] ?? 0) + oldServed;
+                existing['extras'] = extras;
+              } else {
+                // Add as new "Fully Served" item
+                finalItemsMap.add({
+                  'name': oldName,
+                  'quantity': oldServed,
+                  'extras': {
+                    ...?oldItem.extras, 
+                    'served': oldServed // Ensure it's fully served
+                  }
+                });
+              }
+           }
+        }
+      });
+    }
+
+    // Convert back to OrderItem
+    List<OrderItem> finalPersonItems = finalItemsMap.map((m) => OrderItem.fromMap(m)).toList();
+
+    // Recalculate Total Items
+    int grandTotalItems = finalPersonItems.fold(0, (sum, item) => sum + item.quantity);
+
+    // Create Person
+    String personName = _nameController.text.isNotEmpty ? _nameController.text : "Cliente";
+    // Sanitize key (remove dots etc if using as map key, but PersonOrder.name is fine)
+    PersonOrder p1 = PersonOrder(name: personName, items: finalPersonItems);
+    
+    Map<String, PersonOrder> peopleMap = {'P1': p1};
+
     final newOrder = OrderModel(
       id: widget.existingOrder?.id,
       tableNumber: widget.tableNumber ?? 0,
       orderNumber: widget.orderNumber,
-      totalItems: totalItems,
+      totalItems: grandTotalItems,
       timestamp: widget.existingOrder?.timestamp ?? DateTime.now(),
       customerName: _nameController.text.isEmpty ? null : _nameController.text,
-      salsas: _selectedSalsas,
+      salsas: _selectedSalsas, 
 
-      tacoCounts: finalTacos,
-      sodaCounts: finalSodas,
-      simpleExtraCounts: finalExtras,
-      tacoServed: widget.existingOrder?.tacoServed ?? {},
-      sodaServed: widget.existingOrder?.sodaServed ?? {},
-      simpleExtraServed: widget.existingOrder?.simpleExtraServed ?? {},
+      // Legacy fields kept empty or minimal
+      tacoCounts: {}, 
+      sodaCounts: {}, 
+      simpleExtraCounts: {},
+      tacoServed: {}, sodaServed: {}, simpleExtraServed: {},
+      
+      people: peopleMap, // NEW SOURCE OF TRUTH
     );
 
     Navigator.pop(context, newOrder);
@@ -192,8 +324,15 @@ class _OrderScreenState extends State<OrderScreen> {
 
     final isToGo = widget.tableNumber == 0 || widget.tableNumber == null;
 
+    // Define Hot Drinks (consistent with _loadInventoryAndSetup)
+    final hotDrinks = ['Té', 'Café de Olla', 'Café Soluble'];
+
     // Get list of active sodas to display (filtered dynamically)
     final activeSodas = _sodaCounts.keys.toList();
+
+    // Filter Extras: Separate Hot Drinks from "True" Extras
+    final activeHotDrinks = _simpleExtraCounts.keys.where((k) => hotDrinks.contains(k)).toList();
+    final activeTrueExtras = _simpleExtraCounts.keys.where((k) => !hotDrinks.contains(k)).toList();
 
     return Scaffold(
       backgroundColor: kBackgroundColor,
@@ -247,9 +386,12 @@ class _OrderScreenState extends State<OrderScreen> {
                     ),
                   ),
 
-                  // --- SODA SECTION (Active Only) ---
-                  if (activeSodas.isNotEmpty) ...[
-                    SliverToBoxAdapter(child: _buildSectionHeader('Bebidas')),
+                  // --- BEVERAGES SECTION (Sodas + Hot Drinks) ---
+                  if (activeSodas.isNotEmpty || activeHotDrinks.isNotEmpty) 
+                     SliverToBoxAdapter(child: _buildSectionHeader('Bebidas')),
+
+                  // 1. Sodas
+                  if (activeSodas.isNotEmpty)
                     SliverList(
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
@@ -259,15 +401,31 @@ class _OrderScreenState extends State<OrderScreen> {
                         childCount: activeSodas.length,
                       ),
                     ),
-                  ],
+                  
+                  // 2. Hot Drinks (Simple Counter)
+                  if (activeHotDrinks.isNotEmpty)
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                          String drink = activeHotDrinks[index];
+                          return _buildTacoOrderItem( // Reusing simple counter widget
+                            flavor: drink,
+                            count: _simpleExtraCounts[drink] ?? 0,
+                            onDecrement: () => _decrementSimpleExtra(drink),
+                            onIncrement: () => _incrementSimpleExtra(drink),
+                          );
+                        },
+                        childCount: activeHotDrinks.length,
+                      ),
+                    ),
 
                   // --- EXTRAS SECTION (Filtered) ---
-                  if (_simpleExtraCounts.isNotEmpty) ...[
+                  if (activeTrueExtras.isNotEmpty) ...[
                     SliverToBoxAdapter(child: _buildSectionHeader('Extras')),
                     SliverList(
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
-                          String extra = _simpleExtraCounts.keys.elementAt(index);
+                          String extra = activeTrueExtras[index];
                           return _buildTacoOrderItem(
                             flavor: extra,
                             count: _simpleExtraCounts[extra] ?? 0,
@@ -275,7 +433,7 @@ class _OrderScreenState extends State<OrderScreen> {
                             onIncrement: () => _incrementSimpleExtra(extra),
                           );
                         },
-                        childCount: _simpleExtraCounts.length,
+                        childCount: activeTrueExtras.length,
                       ),
                     ),
                   ],
@@ -364,9 +522,9 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   Widget _buildAppBar(BuildContext context) {
-    String title = widget.orderType;
+    String title = 'order_screen.dart';
     if (widget.tableNumber != null) {
-      title = 'Mesa ${widget.tableNumber} - Orden ${widget.orderNumber}';
+      title = 'order_screen.dart'; // Override as requested, or maybe append? The user said "pongamos como titulo... el nombre del file". I will set it directly.
     }
 
     return Padding(

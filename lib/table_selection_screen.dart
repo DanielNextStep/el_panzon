@@ -1,26 +1,20 @@
-import 'package:flutter/material.dart';
-import 'shared_styles.dart';
-// --- ACTUALIZADO: Importa la nueva pantalla de gestión ---
-import 'table_order_manager.dart';
+import 'models/order_model.dart';
+import 'services/firestore_service.dart';
 
 class TableSelectionScreen extends StatelessWidget {
-  // --- AÑADIDO: Recibe los sabores disponibles ---
   final Map<String, bool> availableFlavors;
-  // --- AÑADIDO: Recibe los extras disponibles ---
   final Map<String, bool> availableExtras;
 
   const TableSelectionScreen({
     super.key,
-    required this.availableFlavors, // --- AÑADIDO: al constructor
-    required this.availableExtras, // --- AÑADIDO: al constructor
+    required this.availableFlavors,
+    required this.availableExtras,
   });
 
-  // --- ACTUALIZADO: Navega a la pantalla de GESTIÓN de mesa ---
   void _navigateToTableManager(BuildContext context, int tableNumber) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        // --- ACTUALIZADO: Ahora va a TableOrderManagerScreen ---
         builder: (context) => TableOrderManagerScreen(
           tableNumber: tableNumber,
           availableFlavors: availableFlavors,
@@ -44,22 +38,56 @@ class TableSelectionScreen extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(28.0),
-                child: GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, // 2 columnas
-                    crossAxisSpacing: 30, // Espacio horizontal
-                    mainAxisSpacing: 30, // Espacio vertical
-                    childAspectRatio: 1.2, // Ligeramente más anchos que altos
-                  ),
-                  itemCount: 5,
-                  itemBuilder: (context, index) {
-                    int tableNumber = index + 1;
-                    return _buildTableButton(
-                      context: context,
-                      tableNumber: tableNumber,
-                      onPressed: () {
-                        // --- ACTUALIZADO: Llama a la nueva función ---
-                        _navigateToTableManager(context, tableNumber);
+                child: StreamBuilder<List<OrderModel>>(
+                  stream: FirestoreService().getAllActiveOrdersStream(),
+                  builder: (context, snapshot) {
+                    // Map active orders by table number
+                    final Map<int, OrderModel> activeOrders = {};
+                    if (snapshot.hasData) {
+                      for (var order in snapshot.data!) {
+                        activeOrders[order.tableNumber] = order;
+                      }
+                    }
+
+                    return GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2, // 2 columnas
+                        crossAxisSpacing: 30, // Espacio horizontal
+                        mainAxisSpacing: 30, // Espacio vertical
+                        childAspectRatio: 1.2, // Ligeramente más anchos que altos
+                      ),
+                      itemCount: 5,
+                      itemBuilder: (context, index) {
+                        int tableNumber = index + 1;
+                        final order = activeOrders[tableNumber];
+                        
+                        // Status Logic
+                        Color? statusColor;
+                        if (order != null) {
+                          if (order.tableNumber == 3 && !order.isFullyServed) {
+                             print("DEBUG: Table 3 is PENDING. Items:");
+                             for(var p in order.people.values) {
+                               for(var i in p.items) {
+                                 print(" - ${i.name}: Qty=${i.quantity}, Served=${i.extras['served']}");
+                               }
+                             }
+                          }
+
+                          if (order.isFullyServed) {
+                             statusColor = Colors.green.withOpacity(0.2); // Served
+                          } else {
+                             statusColor = Colors.redAccent.withOpacity(0.2); // Pending
+                          }
+                        }
+
+                        return _buildTableButton(
+                          context: context,
+                          tableNumber: tableNumber,
+                          color: statusColor,
+                          onPressed: () {
+                            _navigateToTableManager(context, tableNumber);
+                          },
+                        );
                       },
                     );
                   },
@@ -113,19 +141,21 @@ class TableSelectionScreen extends StatelessWidget {
     required BuildContext context,
     required int tableNumber,
     required VoidCallback onPressed,
+    Color? color,
   }) {
     return GestureDetector(
       onTap: onPressed,
       child: NeumorphicContainer(
         borderRadius: 20.0,
         padding: const EdgeInsets.all(20), // Padding uniforme
+        color: color,
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.table_restaurant_outlined, // Icono de mesa
-                color: kAccentColor,
+                color: color != null ? kTextColor : kAccentColor, // Change icon color slightly on colored bg
                 size: 40,
               ),
               const SizedBox(height: 10),

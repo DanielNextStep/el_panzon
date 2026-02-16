@@ -16,6 +16,7 @@ class NeumorphicContainer extends StatelessWidget {
   final EdgeInsets padding;
   final bool isCircle;
   final bool isInner; // New parameter for "pressed" or "input" look
+  final Color? color; // New parameter for custom background color
 
   const NeumorphicContainer({
     super.key,
@@ -24,6 +25,7 @@ class NeumorphicContainer extends StatelessWidget {
     this.padding = const EdgeInsets.all(12.0),
     this.isCircle = false,
     this.isInner = false, // Default to false (outer shadow)
+    this.color,
   });
 
   @override
@@ -35,7 +37,7 @@ class NeumorphicContainer extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         // If isInner, we use a gradient to simulate depth. If not, plain background.
-        color: isInner ? null : kBackgroundColor,
+        color: isInner ? null : (color ?? kBackgroundColor),
         shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: isCircle ? null : BorderRadius.circular(borderRadius),
         gradient: isInner

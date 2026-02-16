@@ -64,8 +64,8 @@ class FirestoreService {
 
   // --- ORDER METHODS ---
 
-  Future<void> addOrder(OrderModel order) async {
-    await _ordersRef.add(order.toMap());
+  Future<DocumentReference> addOrder(OrderModel order) async {
+    return await _ordersRef.add(order.toMap());
   }
 
   Future<void> updateOrder(OrderModel order) async {
@@ -159,6 +159,16 @@ class FirestoreService {
         .snapshots()
         .map((snapshot) {
       return snapshot.docs.map((doc) => OrderModel.fromSnapshot(doc)).toList();
+    });
+  }
+
+  // --- SINGLE ORDER STREAM ---
+  Stream<OrderModel> getOrderStream(String orderId) {
+    return _ordersRef.doc(orderId).snapshots().map((snapshot) {
+      if (!snapshot.exists) {
+        throw Exception("Order not found");
+      }
+      return OrderModel.fromSnapshot(snapshot);
     });
   }
 

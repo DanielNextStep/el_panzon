@@ -42,30 +42,45 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   void _calculateTotal() {
     double total = 0.0;
-
-    widget.order.tacoCounts.forEach((name, qty) {
-      total += (_priceMap[name] ?? 0.0) * qty;
-    });
-
-    widget.order.simpleExtraCounts.forEach((name, qty) {
-      total += (_priceMap[name] ?? 0.0) * qty;
-    });
-
-    widget.order.sodaCounts.forEach((name, temps) {
-      int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
-      total += (_priceMap[name] ?? 0.0) * qty;
-    });
+    
+    // Calculate total from People (SERVED ONLY)
+    if (widget.order.people.isNotEmpty) {
+      widget.order.people.forEach((_, person) {
+        for (var item in person.items) {
+          int served = item.extras['served'] ?? 0;
+          total += (_priceMap[item.name] ?? 0.0) * served;
+        }
+      });
+    } else {
+      // Fallback for legacy data (Use served maps)
+      widget.order.tacoServed.forEach((name, qty) {
+        total += (_priceMap[name] ?? 0.0) * qty;
+      });
+      widget.order.simpleExtraServed.forEach((name, qty) {
+        total += (_priceMap[name] ?? 0.0) * qty;
+      });
+      widget.order.sodaServed.forEach((name, temps) {
+        int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+        total += (_priceMap[name] ?? 0.0) * qty;
+      });
+    }
 
     _totalAmount = total;
   }
 
   Future<void> _processPayment() async {
+    if (_totalAmount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No hay nada servido para cobrar"), backgroundColor: Colors.orange)
+      );
+      return;
+    }
+
     HapticFeedback.heavyImpact();
     setState(() => _isLoading = true);
 
     try {
-      // 1. Process Database Transaction (Archive to History & Delete from Active)
-      // This ALREADY saves the detailed item breakdown because it copies the entire OrderModel
+      // 1. Process Database Transaction
       await _service.processCheckout(widget.order);
 
       // 2. Print Receipt
@@ -148,24 +163,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     children: [
                       const Icon(Icons.receipt_long, size: 40, color: kAccentColor),
                       const SizedBox(height: 10),
-                      const Text("DETALLE DE CONSUMO", style: TextStyle(letterSpacing: 2, fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                      const Text("DETALLE DE CONSUMO (SERVIDO)", style: TextStyle(letterSpacing: 2, fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
                       const Divider(height: 30),
 
                       Expanded(
                         child: ListView(
                           children: [
-                            ..._buildTicketItems(widget.order.tacoCounts),
-                            ..._buildTicketItems(widget.order.simpleExtraCounts),
-                            ..._buildSodaItems(widget.order.sodaCounts),
+                            if (widget.order.people.isNotEmpty)
+                              ...widget.order.people.values.map((person) => _buildPersonSection(person))
+                            else ...[
+                              // Legacy Fallback (Hidden for now/assuming migration)
+                              const Center(child: Text("Formato antiguo - No soportado para desglose servido completo")),
+                            ]
                           ],
                         ),
                       ),
 
                       const Divider(height: 30),
+                      if (_totalAmount == 0)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 10),
+                          child: Text("Nada servido aún", style: TextStyle(color: Colors.orange, fontStyle: FontStyle.italic)),
+                        ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("TOTAL", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kTextColor)),
+                          const Text("TOTAL PACIAL", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kTextColor)),
                           Text("\$${_totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: kAccentColor)),
                         ],
                       )
@@ -178,19 +201,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Padding(
               padding: const EdgeInsets.all(30),
               child: GestureDetector(
-                onTap: _isLoading ? null : _processPayment,
+                onTap: _isLoading || _totalAmount <= 0 ? null : _processPayment,
                 child: NeumorphicContainer(
                   borderRadius: 20,
                   padding: const EdgeInsets.symmetric(vertical: 18),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.print, color: Colors.green, size: 28),
+                      Icon(Icons.print, color: _totalAmount > 0 ? Colors.green : Colors.grey, size: 28),
                       const SizedBox(width: 10),
                       Text(
                         _isLoading ? "Procesando..." : "COBRAR E IMPRIMIR",
-                        style: const TextStyle(
-                            color: Colors.green,
+                        style: TextStyle(
+                            color: _totalAmount > 0 ? Colors.green : Colors.grey,
                             fontWeight: FontWeight.w900,
                             fontSize: 18,
                             letterSpacing: 1
@@ -207,6 +230,50 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
+  Widget _buildPersonSection(PersonOrder person) {
+    // Filter only items that have SOME served amount
+    final servedItems = person.items.where((i) => (i.extras['served'] ?? 0) > 0).toList();
+    if (servedItems.isEmpty) return const SizedBox.shrink();
+
+    double personTotal = 0.0;
+    for (var item in servedItems) {
+      int served = item.extras['served'] ?? 0;
+      personTotal += (_priceMap[item.name] ?? 0.0) * served;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 15.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(person.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: kAccentColor)),
+              Text("\$${personTotal.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey)),
+            ],
+          ),
+          const Divider(height: 10, thickness: 0.5),
+          ...servedItems.map((item) {
+             int served = item.extras['served'] ?? 0;
+             double subtotal = (_priceMap[item.name] ?? 0.0) * served;
+             return Padding(
+               padding: const EdgeInsets.symmetric(vertical: 2),
+               child: Row(
+                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                 children: [
+                   Text("$served x ${item.name}", style: const TextStyle(fontSize: 14, color: kTextColor)),
+                   Text("\$${subtotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: kTextColor)),
+                 ],
+               ),
+             );
+          }),
+        ],
+      ),
+    );
+  }
+
+  // --- LEGACY HELPERS ---
   List<Widget> _buildTicketItems(Map<String, int> items) {
     List<Widget> widgets = [];
     items.forEach((name, qty) {
