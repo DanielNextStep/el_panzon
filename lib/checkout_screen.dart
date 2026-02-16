@@ -40,6 +40,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     });
   }
 
+  // Helper to get price (with hardcoded fallback for Desechables)
+  double _getPrice(String name) {
+    if (name == 'Desechables') return 2.0;
+    return _priceMap[name] ?? 0.0;
+  }
+
   void _calculateTotal() {
     double total = 0.0;
     
@@ -48,20 +54,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       widget.order.people.forEach((_, person) {
         for (var item in person.items) {
           int served = item.extras['served'] ?? 0;
-          total += (_priceMap[item.name] ?? 0.0) * served;
+          total += _getPrice(item.name) * served;
         }
       });
     } else {
       // Fallback for legacy data (Use served maps)
       widget.order.tacoServed.forEach((name, qty) {
-        total += (_priceMap[name] ?? 0.0) * qty;
+        total += _getPrice(name) * qty;
       });
       widget.order.simpleExtraServed.forEach((name, qty) {
-        total += (_priceMap[name] ?? 0.0) * qty;
+        total += _getPrice(name) * qty;
       });
       widget.order.sodaServed.forEach((name, temps) {
         int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
-        total += (_priceMap[name] ?? 0.0) * qty;
+        total += _getPrice(name) * qty;
       });
     }
 
@@ -84,7 +90,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       await _service.processCheckout(widget.order);
 
       // 2. Print Receipt
-      String printResult = await _printerService.printReceipt(widget.order, _totalAmount);
+      // We must pass a modified price map that includes 'Desechables'
+      Map<String, double> printingPriceMap = Map.from(_priceMap);
+      printingPriceMap['Desechables'] = 2.0;
+      
+      String printResult = await _printerService.printReceipt(widget.order, _totalAmount, printingPriceMap);
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -238,7 +248,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     double personTotal = 0.0;
     for (var item in servedItems) {
       int served = item.extras['served'] ?? 0;
-      personTotal += (_priceMap[item.name] ?? 0.0) * served;
+      personTotal += _getPrice(item.name) * served;
     }
 
     return Padding(
@@ -256,7 +266,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           const Divider(height: 10, thickness: 0.5),
           ...servedItems.map((item) {
              int served = item.extras['served'] ?? 0;
-             double subtotal = (_priceMap[item.name] ?? 0.0) * served;
+             double subtotal = _getPrice(item.name) * served;
              return Padding(
                padding: const EdgeInsets.symmetric(vertical: 2),
                child: Row(

@@ -91,75 +91,10 @@ class _OrderScreenState extends State<OrderScreen> {
     if (widget.existingOrder != null) {
       _nameController.text = widget.existingOrder!.customerName ?? '';
       _selectedSalsas = List.from(widget.existingOrder!.salsas);
-
-      // --- LOGIC TO LOAD FROM 'PEOPLE' (New Structure) ---
-      if (widget.existingOrder!.people.isNotEmpty) {
-        widget.existingOrder!.people.forEach((personId, personOrder) {
-          for (var item in personOrder.items) {
-             // Tacos
-             if (_tacoCounts.containsKey(item.name)) {
-               int served = item.extras['served'] ?? 0;
-               int remaining = item.quantity - served;
-               if (remaining > 0) {
-                 _tacoCounts[item.name] = (_tacoCounts[item.name] ?? 0) + remaining;
-               }
-             }
-             // Extras
-             else if (_simpleExtraCounts.containsKey(item.name)) {
-               int served = item.extras['served'] ?? 0;
-               int remaining = item.quantity - served;
-               if (remaining > 0) {
-                 _simpleExtraCounts[item.name] = (_simpleExtraCounts[item.name] ?? 0) + remaining;
-               }
-             }
-             // Sodas
-             else if (_sodaCounts.containsKey(item.name)) {
-               String temp = item.extras['temp'] ?? 'Frío';
-               int served = item.extras['served'] ?? 0;
-               int remaining = item.quantity - served;
-               
-               if (remaining > 0 && _sodaCounts[item.name]!.containsKey(temp)) {
-                 _sodaCounts[item.name]![temp] = (_sodaCounts[item.name]![temp] ?? 0) + remaining;
-               }
-             }
-          }
-        });
-
-      } else {
-        // --- FALLBACK: Legacy Loading ---
-        widget.existingOrder!.tacoCounts.forEach((flavor, totalCount) {
-          if (_tacoCounts.containsKey(flavor)) {
-            int served = widget.existingOrder!.tacoServed[flavor] ?? 0;
-            int remaining = totalCount - served;
-            _tacoCounts[flavor] = remaining > 0 ? remaining : 0;
-          }
-        });
-
-        widget.existingOrder!.simpleExtraCounts.forEach((extra, totalCount) {
-          if (_simpleExtraCounts.containsKey(extra)) {
-            int served = widget.existingOrder!.simpleExtraServed[extra] ?? 0;
-            int remaining = totalCount - served;
-            _simpleExtraCounts[extra] = remaining > 0 ? remaining : 0;
-          }
-        });
-
-        widget.existingOrder!.sodaCounts.forEach((flavor, temps) {
-          if (_sodaFlavors.contains(flavor)) {
-             _sodaCounts.putIfAbsent(flavor, () => {'Frío': 0, 'Al Tiempo': 0});
-            
-            int coldTotal = temps['Frío'] ?? 0;
-            int coldServed = widget.existingOrder!.sodaServed[flavor]?['Frío'] ?? 0;
-            int coldRemaining = coldTotal - coldServed;
-
-            int warmTotal = temps['Al Tiempo'] ?? 0;
-            int warmServed = widget.existingOrder!.sodaServed[flavor]?['Al Tiempo'] ?? 0;
-            int warmRemaining = warmTotal - warmServed;
-
-            _sodaCounts[flavor]!['Frío'] = coldRemaining > 0 ? coldRemaining : 0;
-            _sodaCounts[flavor]!['Al Tiempo'] = warmRemaining > 0 ? warmRemaining : 0;
-          }
-        });
-      }
+      
+      // FIX: Do NOT load existing item counts into the UI counters.
+      // User requirement: "The waiter view appears in 0 every time a new round starts".
+      // We only load Salsas and Name. Item counters remain at 0 (initialized above).
     }
 
     _calculateTotal();
@@ -196,7 +131,7 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   void _saveOrder() {
-    // 1. Get Current "Visible" Counts (New + Unserved)
+    // 1. Get Current "ACTIVE" Counts (New Items only, since we started at 0)
     final currentTacos = Map<String, int>.from(_tacoCounts)..removeWhere((k, v) => v == 0);
     final currentExtras = Map<String, int>.from(_simpleExtraCounts)..removeWhere((k, v) => v == 0);
     final currentSodas = <String, Map<String, int>>{};
@@ -208,75 +143,113 @@ class _OrderScreenState extends State<OrderScreen> {
        }
     });
 
-    int totalItems = 0; // Temporary total, will be recalculated
-    currentTacos.values.forEach((v) => totalItems += v);
-    currentExtras.values.forEach((v) => totalItems += v);
-    currentSodas.values.forEach((v) => totalItems += (v['Frío']! + v['Al Tiempo']!));
-
-    if (totalItems == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("La orden no puede estar vacía")));
-      return;
-    }
-
-    // --- CONSTRUCT PERSON ORDER ---
-    List<OrderItem> allItems = [];
+    // --- CONSTRUCT NEW (DELTA) ITEMS ---
+    List<OrderItem> newItems = [];
 
     // Helper to add items
-    void addItem(String name, int qty, Map<String, dynamic> extras) {
+    void addNewItem(String name, int qty, Map<String, dynamic> extras) {
       if (qty > 0) {
-        allItems.add(OrderItem(name: name, quantity: qty, extras: extras));
+        newItems.add(OrderItem(name: name, quantity: qty, extras: extras));
       }
     }
 
-    // A. Add "Remaining" (Active) Items from UI
-    currentTacos.forEach((name, qty) => addItem(name, qty, {}));
-    currentExtras.forEach((name, qty) => addItem(name, qty, {}));
+    // Add Items from UI
+    currentTacos.forEach((name, qty) => addNewItem(name, qty, {}));
+    currentExtras.forEach((name, qty) => addNewItem(name, qty, {}));
     currentSodas.forEach((name, temps) {
-      if (temps['Frío']! > 0) addItem(name, temps['Frío']!, {'temp': 'Frío'});
-      if (temps['Al Tiempo']! > 0) addItem(name, temps['Al Tiempo']!, {'temp': 'Al Tiempo'});
+      if (temps['Frío']! > 0) addNewItem(name, temps['Frío']!, {'temp': 'Frío'});
+      if (temps['Al Tiempo']! > 0) addNewItem(name, temps['Al Tiempo']!, {'temp': 'Al Tiempo'});
     });
 
-    // B. Re-Integrate "Already Served" Items from Existing Order
-    List<Map<String, dynamic>> finalItemsMap = allItems.map((e) => e.toMap()).toList();
+    // 2. MERGE WITH EXISTING ITEMS (Fix for disappearing items)
+    // Goal: Final = Existing (Served + Unserved) + New
+    List<Map<String, dynamic>> finalItemsMap = [];
+    
+    // We strictly use the 'people' list from existingOrder if available
+    // But since this screen edits ONE person (conceptually), we need to know WHICH person's items to pull?
+    // The OrderScreen is passed `existingOrder` which is a TEMP order containing ONLY this person's data in the root fields?
+    // Wait, let's check `TableOrderManager`. 
+    // It passes `tempOrder` with `customerName: person.name` and legacy maps populated from that person.
+    // AND it populates `people`? No, `tempOrder` in `_openPersonOrder` does NOT populate `people` for the temp object passed to `OrderScreen`?
+    // Let's check `TableOrderManager` code again.
+    // Line 144: `tempOrder` created. `people` is NOT passed (defaults to empty).
+    // It DOES pass `tacoCounts`, `tacoServed` etc legacy maps.
+    
+    // So `widget.existingOrder` in `OrderScreen` has the PREVIOUS items in the LEGACY fields (`tacoServed`, `tacoCounts` etc).
+    // The previous `OrderScreen` logic (initState) was loading `tacoCounts` from `widget.existingOrder`.
+    // My change removes that load (to start at 0).
+    // BUT `widget.existingOrder` still holds the "History".
+    
+    // RE-VERIFY: `TableOrderManager` passes `initialTacos`, `initialTacoServed` etc.
+    // `initialTacos` contains the TOTAL quantity of that person.
+    // `initialTacoServed` contains the SERVED quantity.
+    
+    // Strategy:
+    // Iterate `widget.existingOrder` Legacy Maps to build the "Existing Items List".
+    // Then Merge `newItems` into "Existing Items List".
 
-    if (widget.existingOrder != null && widget.existingOrder!.people.isNotEmpty) {
-      widget.existingOrder!.people.forEach((_, person) {
-        for (var oldItem in person.items) {
-           int oldServed = oldItem.extras['served'] ?? 0;
-           if (oldServed > 0) {
-              String oldName = oldItem.name;
-              String? oldTemp = oldItem.extras['temp'];
-              
-              // Find in finalItemsMap
-              var matchIndex = finalItemsMap.indexWhere((m) {
-                 bool sameName = m['name'] == oldName;
-                 bool sameTemp = m['extras']['temp'] == oldTemp;
-                 return sameName && sameTemp;
-              });
-              
-              if (matchIndex != -1) {
-                // Merge
-                var existing = finalItemsMap[matchIndex];
-                int currentQty = existing['quantity'];
-                existing['quantity'] = currentQty + oldServed;
-                
-                Map<String, dynamic> extras = existing['extras'] ?? {};
-                extras['served'] = (extras['served'] ?? 0) + oldServed;
-                existing['extras'] = extras;
-              } else {
-                // Add as new "Fully Served" item
-                finalItemsMap.add({
-                  'name': oldName,
-                  'quantity': oldServed,
-                  'extras': {
-                    ...?oldItem.extras, 
-                    'served': oldServed // Ensure it's fully served
-                  }
-                });
-              }
-           }
+    List<OrderItem> existingItems = [];
+    
+    if (widget.existingOrder != null) {
+        // Recover Tacos
+        widget.existingOrder!.tacoCounts.forEach((name, qty) {
+            int served = widget.existingOrder!.tacoServed[name] ?? 0;
+            if (qty > 0) existingItems.add(OrderItem(name: name, quantity: qty, extras: {'served': served}));
+        });
+        // Recover Extras
+        widget.existingOrder!.simpleExtraCounts.forEach((name, qty) {
+            int served = widget.existingOrder!.simpleExtraServed[name] ?? 0;
+            if (qty > 0) existingItems.add(OrderItem(name: name, quantity: qty, extras: {'served': served}));
+        });
+        // Recover Sodas
+        widget.existingOrder!.sodaCounts.forEach((name, temps) {
+            temps.forEach((temp, qty) {
+                if (qty > 0) {
+                    int served = widget.existingOrder!.sodaServed[name]?[temp] ?? 0;
+                    existingItems.add(OrderItem(name: name, quantity: qty, extras: {'temp': temp, 'served': served}));
+                }
+            });
+        });
+    }
+
+    // MERGE LISTS
+    // We clone existing items to final list map to modify
+    finalItemsMap = existingItems.map((e) => e.toMap()).toList();
+
+    for (var newItem in newItems) {
+        String newName = newItem.name;
+        String? newTemp = newItem.extras['temp'];
+        
+        // Find match in finalItemsMap
+        int index = finalItemsMap.indexWhere((m) {
+             return m['name'] == newName && m['extras']['temp'] == newTemp;
+        });
+
+        if (index != -1) {
+            // Update Quantity
+            finalItemsMap[index]['quantity'] += newItem.quantity;
+            // 'served' remains whatever it was (new item doesn't add served count)
+        } else {
+            // Add New Item
+            finalItemsMap.add(newItem.toMap());
         }
-      });
+    }
+
+    // 3. TO GO CHARGE ($2 Desechables)
+    bool isToGo = widget.tableNumber == 0 || widget.tableNumber == null;
+    if (isToGo) {
+        // Check if "Desechables" exists
+        bool hasDesechables = finalItemsMap.any((m) => m['name'] == 'Desechables');
+        if (!hasDesechables) {
+             // Add it (Qty 1, Served 0)
+             finalItemsMap.add(OrderItem(name: 'Desechables', quantity: 1, extras: {}).toMap());
+        }
+    }
+
+    // 4. Validate Total (Must have items OR be existing order? If existing order had items, finalItemsMap will have them)
+    if (finalItemsMap.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("La orden no puede estar vacía")));
+      return;
     }
 
     // Convert back to OrderItem
@@ -287,7 +260,6 @@ class _OrderScreenState extends State<OrderScreen> {
 
     // Create Person
     String personName = _nameController.text.isNotEmpty ? _nameController.text : "Cliente";
-    // Sanitize key (remove dots etc if using as map key, but PersonOrder.name is fine)
     PersonOrder p1 = PersonOrder(name: personName, items: finalPersonItems);
     
     Map<String, PersonOrder> peopleMap = {'P1': p1};
@@ -300,14 +272,15 @@ class _OrderScreenState extends State<OrderScreen> {
       timestamp: widget.existingOrder?.timestamp ?? DateTime.now(),
       customerName: _nameController.text.isEmpty ? null : _nameController.text,
       salsas: _selectedSalsas, 
-
-      // Legacy fields kept empty or minimal
+      
+      // Legacy fields - Populate them just in case TableOrderManager uses them for display before refetching?
+      // Actually TableOrderManager reconstructs from `peopleMap`, so empty is fine.
       tacoCounts: {}, 
       sodaCounts: {}, 
       simpleExtraCounts: {},
       tacoServed: {}, sodaServed: {}, simpleExtraServed: {},
       
-      people: peopleMap, // NEW SOURCE OF TRUTH
+      people: peopleMap,
     );
 
     Navigator.pop(context, newOrder);
@@ -341,7 +314,7 @@ class _OrderScreenState extends State<OrderScreen> {
           children: [
             _buildAppBar(context),
 
-            if (isToGo)
+            // Always allow name editing
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
                 child: Container(

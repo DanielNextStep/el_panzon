@@ -201,7 +201,35 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
         allItemNames.add(key);
       }
     });
-    List<String> sortedItems = allItemNames.toList()..sort();
+
+    // Custom Sort Logic: Tacos > Extras > Drinks
+    int _getItemPriority(String name) {
+      // 1. Tacos (Explicit list or default check)
+      const tacos = ['Chicharron', 'Frijol con Chorizo', 'Papa', 'Carnitas en Morita', 'Huevo en Pasilla', 'Tinga', 'Adobo'];
+      if (tacos.any((t) => name.startsWith(t))) return 1;
+
+      // 3. Drinks (Explicit list)
+      const drinks = ['Coca', 'Café', 'Té', 'Agua', 'Boing', 'Cafe'];
+      if (drinks.any((d) => name.startsWith(d))) return 3;
+
+      // 2. Extras/Others (Arroz, etc)
+      return 2;
+    }
+
+    Color _getItemColor(String name) {
+        int priority = _getItemPriority(name);
+        if (priority == 1) return kTextColor; // Tacos -> Black/Dark
+        return Colors.blue[800]!; // Others -> Blue
+    }
+
+    List<String> sortedItems = allItemNames.toList()
+      ..sort((a, b) {
+        int priorityA = _getItemPriority(a);
+        int priorityB = _getItemPriority(b);
+        if (priorityA != priorityB) return priorityA.compareTo(priorityB);
+        return a.compareTo(b); // Alphabetical within same priority
+      });
+    
     List<String> sortedPersonIds = widget.order.people.keys.toList()..sort();
 
     return Padding(
@@ -226,29 +254,51 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
                     // Only display bottom border if expanded
                     border: _isExpanded ? Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.2))) : null,
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(
-                          widget.order.tableNumber == 0 ? Icons.shopping_bag : Icons.table_restaurant,
-                          color: kAccentColor,
+                        Row(
+                          children: [
+                            Icon(
+                              widget.order.tableNumber == 0 ? Icons.shopping_bag : Icons.table_restaurant,
+                              color: kAccentColor,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(headerTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kTextColor)),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        Text(headerTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kTextColor)),
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                            const SizedBox(width: 5),
+                            Text(_timeElapsed, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                            const SizedBox(width: 15),
+                            // Collapse Icon
+                            Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: kAccentColor),
+                          ],
+                        )
                       ],
                     ),
-                    Row(
-                      children: [
-                        const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                        const SizedBox(width: 5),
-                        Text(_timeElapsed, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                        const SizedBox(width: 15),
-                        // Collapse Icon
-                        Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: kAccentColor),
-                      ],
-                    )
+                    // --- SALSAS DISPLAY ---
+                    if (widget.order.salsas.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.hot_tub, size: 14, color: Colors.orange), // Salsa Icon
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                "Salsas: ${widget.order.salsas.join(', ')}",
+                                style: const TextStyle(color: kTextColor, fontSize: 14, fontStyle: FontStyle.italic),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -282,7 +332,11 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
 
                     return DataRow(
                       cells: [
-                        DataCell(Text(displayLabel, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+                        DataCell(Text(displayLabel, style: TextStyle(
+                            fontWeight: FontWeight.w600, 
+                            fontSize: 13,
+                            color: _getItemColor(itemKey) // APPLY COLOR
+                        ))),
 
                         ...sortedPersonIds.map((pId) {
                           final person = widget.order.people[pId];

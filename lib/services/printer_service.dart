@@ -27,7 +27,7 @@ class PrinterService {
     await _db.collection('config').doc('printer').set({'ip': ip});
   }
 
-  Future<String> printReceipt(OrderModel order, double total) async {
+  Future<String> printReceipt(OrderModel order, double total, Map<String, double> priceMap) async {
     Socket? socket;
     try {
       final printerIp = await getStoredIp();
@@ -77,24 +77,40 @@ class PrinterService {
       // Print items per person if available
       if (order.people.isNotEmpty) {
         order.people.forEach((pId, person) {
-          bytes.addAll(_utf8("-- ${person.name} --\n"));
-          for (var item in person.items) {
-            bytes.addAll(_utf8(_formatLineItem(item.quantity, item.name)));
+          // Check if person has ANY served items before printing header
+          bool hasItems = person.items.any((i) => (i.extras['served'] ?? 0) > 0);
+          if (hasItems) {
+            bytes.addAll(_utf8("-- ${person.name} --\n"));
+            for (var item in person.items) {
+               // Only print served items
+               int served = item.extras['served'] ?? 0;
+               if (served > 0) {
+                 double price = priceMap[item.name] ?? 0.0;
+                 double lineTotal = price * served;
+                 bytes.addAll(_utf8(_formatLineItem(served, item.name, lineTotal)));
+               }
+            }
+            bytes.addAll(_utf8("\n"));
           }
-          bytes.addAll(_utf8("\n"));
         });
       } else {
         // Fallback for legacy orders
         order.tacoCounts.forEach((name, qty) {
-          bytes.addAll(_utf8(_formatLineItem(qty, name)));
+           double price = priceMap[name] ?? 0.0;
+           double lineTotal = price * qty;
+           bytes.addAll(_utf8(_formatLineItem(qty, name, lineTotal)));
         });
         order.simpleExtraCounts.forEach((name, qty) {
-          bytes.addAll(_utf8(_formatLineItem(qty, name)));
+           double price = priceMap[name] ?? 0.0;
+           double lineTotal = price * qty;
+           bytes.addAll(_utf8(_formatLineItem(qty, name, lineTotal)));
         });
         order.sodaCounts.forEach((name, temps) {
           int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
           if (qty > 0) {
-            bytes.addAll(_utf8(_formatLineItem(qty, name)));
+             double price = priceMap[name] ?? 0.0;
+             double lineTotal = price * qty;
+             bytes.addAll(_utf8(_formatLineItem(qty, name, lineTotal)));
           }
         });
       }
@@ -177,10 +193,27 @@ class PrinterService {
     return clean.codeUnits;
   }
 
-  String _formatLineItem(int qty, String name) {
+  String _formatLineItem(int qty, String name, double total) {
     String q = "$qty x ";
-    if (name.length > 25) name = name.substring(0, 25);
-    return "$q$name\n";
+    // Max width 32 chars
+    // specific layout: "2 x Taco Suadero       $30.00"
+    
+    String priceStr = "\$${total.toStringAsFixed(2)}";
+    int priceLen = priceStr.length;
+    
+    // Remaining space for Name (including Qty prefix)
+    int maxNameLen = 32 - priceLen - 1; // -1 for at least one space
+    
+    String leftSide = "$q$name";
+    if (leftSide.length > maxNameLen) {
+      leftSide = leftSide.substring(0, maxNameLen);
+    }
+    
+    // Calculate padding
+    int padding = 32 - leftSide.length - priceLen;
+    String spaces = " " * (padding > 0 ? padding : 1);
+    
+    return "$leftSide$spaces$priceStr\n";
   }
 
   String _formatDate(DateTime date) {

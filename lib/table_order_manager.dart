@@ -148,6 +148,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
       totalItems: 0,
       timestamp: DateTime.now(),
       customerName: person.name,
+      salsas: order.salsas,
       tacoCounts: initialTacos,
       sodaCounts: initialSodas,
       simpleExtraCounts: initialExtras,
@@ -222,6 +223,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         totalItems: totalItems, 
         timestamp: order.timestamp,
         customerName: order.customerName, // Keep main order customer Name (for To Go)
+        salsas: result.salsas,
         people: updatedPeople,
         tacoCounts: {}, sodaCounts: {}, simpleExtraCounts: {}, // Consolidated into people
         tacoServed: {}, sodaServed: {}, simpleExtraServed: {},
@@ -260,6 +262,54 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         await _firestoreService.updateOrder(finalOrder);
       }
     }
+  }
+
+  bool _hasDesechables = true; // Default
+
+  Future<void> _toggleDesechables(OrderModel order, bool value) async {
+      HapticFeedback.mediumImpact();
+      Map<String, PersonOrder> updatedPeople = Map.from(order.people);
+      
+      updatedPeople.forEach((pId, person) {
+          List<OrderItem> items = List.from(person.items);
+          if (value) {
+              // Add if missing
+              if (!items.any((i) => i.name == 'Desechables')) {
+                  items.add(OrderItem(name: 'Desechables', quantity: 1, extras: {}));
+              }
+          } else {
+              // Remove
+              items.removeWhere((i) => i.name == 'Desechables');
+          }
+          updatedPeople[pId] = PersonOrder(name: person.name, items: items);
+      });
+
+      // Recalculate Total
+      int totalItems = 0;
+      updatedPeople.forEach((_, p) {
+          for(var i in p.items) totalItems += i.quantity;
+      });
+
+      OrderModel finalOrder = OrderModel(
+        id: order.id, 
+        tableNumber: order.tableNumber,
+        orderNumber: order.orderNumber,
+        totalItems: totalItems, 
+        timestamp: order.timestamp,
+        customerName: order.customerName,
+        salsas: order.salsas,
+        people: updatedPeople,
+        tacoCounts: {}, sodaCounts: {}, simpleExtraCounts: {},
+        tacoServed: {}, sodaServed: {}, simpleExtraServed: {},
+      );
+
+      if (order.id != null) {
+        await _firestoreService.updateOrder(finalOrder);
+      }
+      
+      setState(() {
+          _hasDesechables = value;
+      });
   }
 
   void _editMainOrderName(OrderModel order) {
@@ -329,6 +379,21 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
           final activeOrder = orders.isNotEmpty ? orders.first : null;
           final double grandTotal = activeOrder != null ? _calculateGrandTotal(activeOrder) : 0.0;
           
+          if (activeOrder != null) {
+               bool dbHasDesechables = false;
+               if (activeOrder.people.isNotEmpty) {
+                   dbHasDesechables = activeOrder.people.values.any((p) => p.items.any((i) => i.name == 'Desechables'));
+               } else {
+                   dbHasDesechables = true; 
+               }
+               // Sync local state if it differs (simple approach for this widget lifecycle)
+               if (_hasDesechables != dbHasDesechables) {
+                   // Avoid setState during build, but we need to reflect the DB state.
+                   // Since this is a stateless recalc for display, assign directly.
+                   _hasDesechables = dbHasDesechables;
+               }
+          }
+
           // AppBar Title Logic
           String title = "Mesa ${widget.tableNumber}";
           if (isToGo) {
@@ -347,16 +412,33 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
                 // Custom Header Area (replaces AppBar title visual)
                 Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
-                    child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                            Text(title, style: const TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.bold)),
-                            if (isToGo && activeOrder != null) 
-                                IconButton(
-                                    icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
-                                    onPressed: () => _editMainOrderName(activeOrder),
-                                )
-                        ],
+                    child: Column(
+                      children: [
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                                Text(title, style: const TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.bold)),
+                                if (isToGo && activeOrder != null) 
+                                    IconButton(
+                                        icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
+                                        onPressed: () => _editMainOrderName(activeOrder),
+                                    )
+                            ],
+                        ),
+                        if (isToGo && activeOrder != null)
+                            Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                    const Text("Cobrar Desechables", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                                    const SizedBox(width: 8),
+                                    Switch(
+                                        value: _hasDesechables, 
+                                        activeColor: kAccentColor,
+                                        onChanged: (val) => _toggleDesechables(activeOrder, val)
+                                    )
+                                ],
+                            )
+                      ],
                     ),
                 ),
                 
