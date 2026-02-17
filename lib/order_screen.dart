@@ -90,6 +90,7 @@ class _OrderScreenState extends State<OrderScreen> {
     // 4. Populate existing data (Edit Mode)
     if (widget.existingOrder != null) {
       _nameController.text = widget.existingOrder!.customerName ?? '';
+      // LOAD FROM PASSED ORDER (Which TableOrderManager populated from Person)
       _selectedSalsas = List.from(widget.existingOrder!.salsas);
       
       // FIX: Do NOT load existing item counts into the UI counters.
@@ -271,7 +272,7 @@ class _OrderScreenState extends State<OrderScreen> {
       totalItems: grandTotalItems,
       timestamp: widget.existingOrder?.timestamp ?? DateTime.now(),
       customerName: _nameController.text.isEmpty ? null : _nameController.text,
-      salsas: _selectedSalsas, 
+      salsas: _selectedSalsas, // SAVE SALSAS
       
       // Legacy fields - Populate them just in case TableOrderManager uses them for display before refetching?
       // Actually TableOrderManager reconstructs from `peopleMap`, so empty is fine.

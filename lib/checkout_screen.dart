@@ -53,7 +53,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (widget.order.people.isNotEmpty) {
       widget.order.people.forEach((_, person) {
         for (var item in person.items) {
+          // Auto-serve Desechables
           int served = item.extras['served'] ?? 0;
+          if (item.name == 'Desechables') served = item.quantity; 
+
           total += _getPrice(item.name) * served;
         }
       });
@@ -242,12 +245,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Widget _buildPersonSection(PersonOrder person) {
     // Filter only items that have SOME served amount
-    final servedItems = person.items.where((i) => (i.extras['served'] ?? 0) > 0).toList();
+    // Filter only items that have SOME served amount (or are Desechables)
+    final servedItems = person.items.where((i) {
+        int served = i.extras['served'] ?? 0;
+        if (i.name == 'Desechables') served = i.quantity; // Treat as served
+        return served > 0;
+    }).toList();
     if (servedItems.isEmpty) return const SizedBox.shrink();
 
     double personTotal = 0.0;
     for (var item in servedItems) {
       int served = item.extras['served'] ?? 0;
+      if (item.name == 'Desechables') served = item.quantity;
+      
       personTotal += _getPrice(item.name) * served;
     }
 
@@ -266,6 +276,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           const Divider(height: 10, thickness: 0.5),
           ...servedItems.map((item) {
              int served = item.extras['served'] ?? 0;
+             if (item.name == 'Desechables') served = item.quantity;
+
              double subtotal = _getPrice(item.name) * served;
              return Padding(
                padding: const EdgeInsets.symmetric(vertical: 2),

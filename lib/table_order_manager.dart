@@ -59,12 +59,16 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     return _firestoreService.getOrdersForTable(widget.tableNumber);
   }
 
+  double _getPrice(String name) {
+      if (name == 'Desechables') return 2.0;
+      return _priceMap[name] ?? 0.0;
+  }
+
   double _calculateGrandTotal(OrderModel order) {
     double total = 0.0;
     order.people.forEach((key, person) {
       for (var item in person.items) {
-        double price = _priceMap[item.name] ?? 0.0;
-        total += price * item.quantity;
+        total += _getPrice(item.name) * item.quantity;
       }
     });
     return total;
@@ -73,8 +77,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
   double _calculatePersonTotal(PersonOrder person) {
     double total = 0.0;
     for (var item in person.items) {
-      double price = _priceMap[item.name] ?? 0.0;
-      total += price * item.quantity;
+      total += _getPrice(item.name) * item.quantity;
     }
     return total;
   }
@@ -148,7 +151,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
       totalItems: 0,
       timestamp: DateTime.now(),
       customerName: person.name,
-      salsas: order.salsas,
+      salsas: person.salsas, // LOAD SALSAS FROM PERSON
       tacoCounts: initialTacos,
       sodaCounts: initialSodas,
       simpleExtraCounts: initialExtras,
@@ -201,10 +204,11 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         });
       }
 
-      PersonOrder updatedPerson = PersonOrder(name: person.name, items: newItems); // Use original name if not edited in OrderScreen? OrderScreen returns customerName as name.
-      // Actually OrderScreen returns 'customerName' as the person name text field value.
+      PersonOrder updatedPerson = PersonOrder(name: person.name, items: newItems, salsas: result.salsas); 
+
+      // If name was edited, use it
       if (result.customerName != null && result.customerName!.isNotEmpty) {
-          updatedPerson = PersonOrder(name: result.customerName!, items: newItems);
+          updatedPerson = PersonOrder(name: result.customerName!, items: newItems, salsas: result.salsas);
       }
 
       Map<String, PersonOrder> updatedPeople = Map.from(order.people);
@@ -223,7 +227,7 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
         totalItems: totalItems, 
         timestamp: order.timestamp,
         customerName: order.customerName, // Keep main order customer Name (for To Go)
-        salsas: result.salsas,
+        salsas: [], // Legacy global salsas cleared/unused (now in people)
         people: updatedPeople,
         tacoCounts: {}, sodaCounts: {}, simpleExtraCounts: {}, // Consolidated into people
         tacoServed: {}, sodaServed: {}, simpleExtraServed: {},

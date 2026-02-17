@@ -27,13 +27,15 @@ class OrderItem {
 class PersonOrder {
   final String name; // e.g., "Juan", "P1"
   final List<OrderItem> items;
+  final List<String> salsas; // NEW: Per-person salsas
 
-  PersonOrder({required this.name, required this.items});
+  PersonOrder({required this.name, required this.items, this.salsas = const []});
 
   Map<String, dynamic> toMap() {
     return {
       'name': name,
       'items': items.map((item) => item.toMap()).toList(),
+      'salsas': salsas,
     };
   }
 
@@ -43,6 +45,7 @@ class PersonOrder {
       items: (map['items'] as List<dynamic>? ?? [])
           .map((item) => OrderItem.fromMap(item as Map<String, dynamic>))
           .toList(),
+      salsas: List<String>.from(map['salsas'] ?? []),
     );
   }
 }
@@ -165,6 +168,9 @@ class OrderModel {
         if (person == null) continue;
 
         for (var item in person.items) {
+          // EXCEPTION: Desechables are auto-served / ignored
+          if (item.name == 'Desechables') continue;
+
           int served = item.extras['served'] ?? 0;
           if (served < item.quantity) {
             return false;

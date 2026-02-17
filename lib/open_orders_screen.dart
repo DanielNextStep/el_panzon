@@ -219,7 +219,7 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
     Color _getItemColor(String name) {
         int priority = _getItemPriority(name);
         if (priority == 1) return kTextColor; // Tacos -> Black/Dark
-        return Colors.blue[800]!; // Others -> Blue
+        return Colors.purple[800]!; // Others -> Purple (Contrast)
     }
 
     List<String> sortedItems = allItemNames.toList()
@@ -376,6 +376,13 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
                           }
                           
                           bool isItemDone = pending <= 0;
+
+                          // EXCEPTION: Desechables are auto-served / ignored in UI
+                          bool isDesechable = foundItem.name == 'Desechables';
+                          
+                          if (isDesechable) {
+                              return const DataCell(Center(child: Text("1", style: TextStyle(color: Colors.grey, fontSize: 12))));
+                          }
 
                           return DataCell(
                             Center(
