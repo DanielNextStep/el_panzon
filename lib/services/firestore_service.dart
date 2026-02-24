@@ -62,6 +62,20 @@ class FirestoreService {
     }
   }
 
+  Future<void> resetDailyProduction() async {
+    final snapshot = await _inventoryCollection.get();
+    final batch = _db.batch();
+
+    for (var doc in snapshot.docs) {
+      batch.update(doc.reference, {
+        'initialStock': 0,
+        'currentStock': 0,
+      });
+    }
+
+    await batch.commit();
+  }
+
   // --- ORDER METHODS ---
 
   Future<DocumentReference> addOrder(OrderModel order) async {
@@ -180,6 +194,18 @@ class FirestoreService {
         .map((snapshot) {
       return snapshot.docs.map((doc) => OrderModel.fromSnapshot(doc)).toList();
     });
+  }
+
+  // --- DAILY CLOSURE ---
+  Future<List<OrderModel>> getTodaysSales() async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    
+    final snapshot = await _salesRef
+        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+        .get();
+        
+    return snapshot.docs.map((doc) => OrderModel.fromSnapshot(doc)).toList();
   }
 
   Stream<Set<int>> getBusyTablesStream() {

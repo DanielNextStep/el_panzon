@@ -63,13 +63,8 @@ class Inventory {
     final extras = <String, bool>{};
 
     for (var item in items) {
-      // Only include if active AND has stock (if tracking stock)
+      // Allow negative selling by default, only filter by the manual active toggle
       bool isAvailable = item.isActive;
-
-      // Optional: Auto-disable if out of stock for tracked items
-      if (item.initialStock > 0 && item.currentStock <= 0) {
-        isAvailable = false;
-      }
 
       if (item.type == 'taco') {
         flavors[item.name] = isAvailable;

@@ -38,6 +38,9 @@ class _OrderScreenState extends State<OrderScreen> {
   int _grandTotal = 0;
   bool _isLoading = true; // To wait for inventory check
 
+  // Full Inventory reference
+  Map<String, InventoryItem> _inventoryItems = {};
+
   // Dynamic list populated from Firestore
   List<String> _sodaFlavors = [];
 
@@ -54,6 +57,9 @@ class _OrderScreenState extends State<OrderScreen> {
   Future<void> _loadInventoryAndSetup() async {
     // 1. Fetch Inventory to identify what is a "soda" vs "extra"
     final items = await _firestoreService.getInventoryStream().first;
+
+    // Save full items mapping for low stock check
+    _inventoryItems = {for (var item in items) item.name: item};
 
     // 2. Dynamically build the list of Sodas based on 'type' field in DB
     // CORRECTION: Exclude hot drinks that might be categorized as 'soda' or beverage but don't need temperature
@@ -528,6 +534,9 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   Widget _buildTacoOrderItem({required String flavor, required int count, required VoidCallback onDecrement, required VoidCallback onIncrement}) {
+    final item = _inventoryItems[flavor];
+    final bool isLowStock = item != null && item.initialStock > 0 && item.currentStock <= 10;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
       child: NeumorphicContainer(
@@ -536,7 +545,20 @@ class _OrderScreenState extends State<OrderScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(child: Text(flavor, style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600))),
+            Expanded(
+              child: Row(
+                children: [
+                   Flexible(child: Text(flavor, style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600))),
+                   if (isLowStock) ...[
+                     const SizedBox(width: 8),
+                     Tooltip(
+                       message: "Quedan ${item.currentStock} disponibles",
+                       child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                     ),
+                   ]
+                ],
+              ),
+            ),
             Row(children: [
               GestureDetector(onTap: onDecrement, child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(12), child: Icon(Icons.remove, color: kAccentColor, size: 22))),
               Container(width: 60, alignment: Alignment.center, child: Text('$count', style: const TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700))),
@@ -549,6 +571,9 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   Widget _buildSodaOrderItem({required String flavor}) {
+    final item = _inventoryItems[flavor];
+    final bool isLowStock = item != null && item.initialStock > 0 && item.currentStock <= 10;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
       child: NeumorphicContainer(
@@ -557,7 +582,18 @@ class _OrderScreenState extends State<OrderScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(flavor, style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600)),
+            Row(
+              children: [
+                Text(flavor, style: const TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600)),
+                if (isLowStock) ...[
+                   const SizedBox(width: 8),
+                   Tooltip(
+                     message: "Quedan ${item.currentStock} disponibles",
+                     child: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                   ),
+                ]
+              ]
+            ),
             const SizedBox(height: 15),
             _buildCounterRow(label: 'Frío', count: _sodaCounts[flavor]?['Frío'] ?? 0, onDecrement: () => _decrementSoda(flavor, 'Frío'), onIncrement: () => _incrementSoda(flavor, 'Frío')),
             const SizedBox(height: 10),

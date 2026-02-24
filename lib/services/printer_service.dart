@@ -156,6 +156,97 @@ class PrinterService {
     }
   }
 
+  // --- NEW: DAILY CLOSURE PRINT ---
+  Future<String> printDailyClosure(double totalRevenue, Map<String, int> tacoCounts, Map<String, int> extraCounts, String dateStr) async {
+    Socket? socket;
+    try {
+      final printerIp = await getStoredIp();
+      print("Attempting to connect to $printerIp:$_printerPort for Closure...");
+
+      socket = await Socket.connect(printerIp, _printerPort, timeout: const Duration(seconds: 3));
+      
+      final List<int> bytes = [];
+
+      bytes.addAll([0x1B, 0x40]); // Init
+
+      // Try printing logo
+      try {
+        final ByteData data = await rootBundle.load('assets/images/Logo_Panzon_BN.png');
+        final Uint8List imgBytes = data.buffer.asUint8List();
+        final img.Image? originalImage = img.decodeImage(imgBytes);
+
+        if (originalImage != null) {
+          final img.Image resized = img.copyResize(originalImage, width: 350);
+          bytes.addAll(_generatorImage(resized));
+          bytes.addAll(_utf8("\n"));
+        }
+      } catch (e) {
+        print("Error processing logo for closure: $e");
+      }
+
+
+      bytes.addAll([0x1B, 0x61, 0x01]); // Center align
+      bytes.addAll([0x1D, 0x21, 0x11]); // Double height & width
+      bytes.addAll(_utf8("CIERRE DE CAJA\n"));
+      bytes.addAll([0x1D, 0x21, 0x00]); // Normal text
+      bytes.addAll(_utf8("EL PANZON\n"));
+      bytes.addAll(_utf8("--------------------------------\n"));
+
+      bytes.addAll([0x1B, 0x61, 0x00]); // Left align
+      bytes.addAll(_utf8("Fecha: $dateStr\n"));
+      bytes.addAll(_utf8("--------------------------------\n\n"));
+
+      // Print Tacos
+      if (tacoCounts.isNotEmpty) {
+        bytes.addAll(_utf8("-- TACOS --\n"));
+        tacoCounts.forEach((name, qty) {
+           bytes.addAll(_utf8(_formatClosureLine(name, qty)));
+        });
+        bytes.addAll(_utf8("\n"));
+      }
+
+      // Print Extras/Bebidas
+      if (extraCounts.isNotEmpty) {
+        bytes.addAll(_utf8("-- BEBIDAS / EXTRAS --\n"));
+        extraCounts.forEach((name, qty) {
+           bytes.addAll(_utf8(_formatClosureLine(name, qty)));
+        });
+        bytes.addAll(_utf8("\n"));
+      }
+
+      bytes.addAll(_utf8("--------------------------------\n\n"));
+      
+      bytes.addAll([0x1B, 0x61, 0x02]); // Right align
+      bytes.addAll([0x1D, 0x21, 0x11]); // Double height & width
+      bytes.addAll(_utf8("INGRESOS:\n"));
+      bytes.addAll(_utf8("\$${totalRevenue.toStringAsFixed(2)}\n"));
+      bytes.addAll([0x1D, 0x21, 0x00]); // Normal text
+
+      bytes.addAll(_utf8("\n\n\n"));
+      bytes.addAll([0x1D, 0x56, 0x42, 0x00]); // Cut Paper
+
+      socket.add(Uint8List.fromList(bytes));
+      await socket.flush();
+      return "Cierre impreso en $printerIp";
+    } catch (e) {
+      print("Printing error: $e");
+      return "Error de impresión al cerrar caja";
+    } finally {
+      await socket?.close();
+    }
+  }
+
+  String _formatClosureLine(String name, int qty) {
+    String qtyStr = qty.toString();
+    int maxNameLen = 32 - qtyStr.length - 1; // max width 32
+    String cleanName = name.length > maxNameLen ? name.substring(0, maxNameLen) : name;
+    
+    int padding = 32 - cleanName.length - qtyStr.length;
+    String spaces = " " * (padding > 0 ? padding : 1);
+    
+    return "$cleanName$spaces$qtyStr\n";
+  }
+
   List<int> _generatorImage(img.Image image) {
     List<int> bytes = [];
     final img.Image gray = img.grayscale(image);

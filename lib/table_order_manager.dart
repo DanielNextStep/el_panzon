@@ -268,6 +268,39 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
     }
   }
 
+  Future<void> _deletePerson(OrderModel order, String pId) async {
+    // 1. Copy the people map and remove the person
+    Map<String, PersonOrder> updatedPeople = Map.from(order.people);
+    updatedPeople.remove(pId);
+
+    // 2. Recalculate Total Items
+    int totalItems = 0;
+    updatedPeople.forEach((_, p) {
+      for (var i in p.items) {
+        totalItems += i.quantity;
+      }
+    });
+
+    // 3. Create the updated OrderModel
+    OrderModel finalOrder = OrderModel(
+      id: order.id,
+      tableNumber: order.tableNumber,
+      orderNumber: order.orderNumber,
+      totalItems: totalItems,
+      timestamp: order.timestamp,
+      customerName: order.customerName,
+      salsas: order.salsas,
+      people: updatedPeople,
+      tacoCounts: {}, sodaCounts: {}, simpleExtraCounts: {},
+      tacoServed: {}, sodaServed: {}, simpleExtraServed: {},
+    );
+
+    // 4. Save to Firestore
+    if (order.id != null) {
+      await _firestoreService.updateOrder(finalOrder);
+    }
+  }
+
   bool _hasDesechables = true; // Default
 
   Future<void> _toggleDesechables(OrderModel order, bool value) async {
@@ -523,48 +556,91 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
-      child: GestureDetector(
-        onTap: () => _openPersonOrder(context, order, pId, person),
-        child: NeumorphicContainer(
-          borderRadius: 15,
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.person, color: kTextColor),
-                      const SizedBox(width: 8),
-                      Text(person.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: kTextColor)),
-                    ],
+      child: Dismissible(
+        key: Key(pId),
+        direction: DismissDirection.startToEnd,
+        background: Container(
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: const Icon(Icons.delete, color: Colors.white, size: 30),
+        ),
+        confirmDismiss: (direction) async {
+          return await showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text("Confirmar Eliminación"),
+                content: const Text("¿Estás seguro que deseas eliminar a esta persona y todos sus artículos?"),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text("Cancelar"),
                   ),
-                  Text("\$${total.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor)),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
+                  ),
                 ],
-              ),
-              if (itemCount > 0) ...[
-                const Divider(height: 15),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 8,
-                    children: person.items.map((item) {
-                      return Chip(
-                        label: Text("${item.quantity} ${item.name}", style: const TextStyle(fontSize: 11)),
-                        backgroundColor: kBackgroundColor,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                      );
-                    }).toList(),
-                  ),
-                )
-              ] else
-                const Padding(
-                  padding: EdgeInsets.only(top: 8.0),
-                  child: Text("Tocá para ordenar", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                )
-            ],
+              );
+            },
+          );
+        },
+        onDismissed: (direction) {
+          _deletePerson(order, pId);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("${person.name} eliminad@ de la orden"),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+        child: GestureDetector(
+          onTap: () => _openPersonOrder(context, order, pId, person),
+          child: NeumorphicContainer(
+            borderRadius: 15,
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.person, color: kTextColor),
+                        const SizedBox(width: 8),
+                        Text(person.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: kTextColor)),
+                      ],
+                    ),
+                    Text("\$${total.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, color: kTextColor)),
+                  ],
+                ),
+                if (itemCount > 0) ...[
+                  const Divider(height: 15),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      children: person.items.map((item) {
+                        return Chip(
+                          label: Text("${item.quantity} ${item.name}", style: const TextStyle(fontSize: 11)),
+                          backgroundColor: kBackgroundColor,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        );
+                      }).toList(),
+                    ),
+                  )
+                ] else
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8.0),
+                    child: Text("Tocá para ordenar", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  )
+              ],
+            ),
           ),
         ),
       ),

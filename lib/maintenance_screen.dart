@@ -4,6 +4,7 @@ import 'shared_styles.dart';
 import 'services/firestore_service.dart';
 import 'services/printer_service.dart';
 import 'models/inventory_model.dart';
+import 'daily_closure_dialog.dart';
 
 class MaintenanceScreen extends StatelessWidget {
   const MaintenanceScreen({super.key});
@@ -151,6 +152,56 @@ class MaintenanceScreen extends StatelessWidget {
           ),
           const SizedBox(width: 20),
           const Expanded(child: Text('Inventario', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700))),
+          
+          // --- Nuevo Día Button ---
+          IconButton(
+            icon: const Icon(Icons.wb_sunny, color: Colors.orange),
+            tooltip: "Iniciar Nuevo Día",
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: const Text("Iniciar Nuevo Día"),
+                    content: const Text("¿Estás seguro de que deseas reiniciar la producción de todas las carnes y bebidas a 0?\n\nEsta acción no se puede deshacer."),
+                    actions: [
+                      TextButton(
+                        child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                        child: const Text("Reiniciar a 0", style: TextStyle(color: Colors.white)),
+                        onPressed: () async {
+                          Navigator.of(context).pop();
+                          await FirestoreService().resetDailyProduction();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Producción reiniciada para un nuevo día"), backgroundColor: Colors.green),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+          
+          // --- Cierre de Día Button ---
+          IconButton(
+             icon: const Icon(Icons.point_of_sale, color: Colors.green),
+             tooltip: "Cierre de Día",
+             onPressed: () {
+                showDialog(
+                   context: context,
+                   builder: (context) => const DailyClosureDialog()
+                );
+             }
+          ),
+          // -----------------------
+          
           IconButton(icon: const Icon(Icons.print, color: kAccentColor), tooltip: "Configurar Impresora", onPressed: () => _showPrinterConfig(context)),
           IconButton(
             icon: const Icon(Icons.cloud_download_outlined, color: kAccentColor),

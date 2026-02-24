@@ -134,8 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                // Filter only items that track production (>0)
-                final trackedItems = snapshot.data!.where((i) => i.initialStock > 0 || i.type == 'taco').toList();
+                // Filter only ACTIVE items that track production (>0)
+                final trackedItems = snapshot.data!.where((i) => i.isActive && (i.initialStock > 0 || i.type == 'taco')).toList();
 
                 if (trackedItems.isEmpty) return const Text("No hay items con seguimiento de producción.");
 
