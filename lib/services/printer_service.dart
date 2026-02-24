@@ -78,12 +78,14 @@ class PrinterService {
       if (order.people.isNotEmpty) {
         order.people.forEach((pId, person) {
           // Check if person has ANY served items before printing header
-          bool hasItems = person.items.any((i) => (i.extras['served'] ?? 0) > 0);
+          bool hasItems = person.items.any((i) => (i.extras['served'] ?? 0) > 0 || i.name == 'Desechables');
           if (hasItems) {
             bytes.addAll(_utf8("-- ${person.name} --\n"));
             for (var item in person.items) {
-               // Only print served items
+               // Only print served items (Handle Desechables specially)
                int served = item.extras['served'] ?? 0;
+               if (item.name == 'Desechables') served = item.quantity;
+
                if (served > 0) {
                  double price = priceMap[item.name] ?? 0.0;
                  double lineTotal = price * served;
