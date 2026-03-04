@@ -8,6 +8,7 @@ import 'table_order_manager.dart'; // Direct navigation to table manager
 import 'maintenance_screen.dart';
 import 'services/firestore_service.dart';
 import 'models/inventory_model.dart';
+import 'models/order_model.dart';
 import 'open_orders_screen.dart';
 import 'to_go_orders_screen.dart';
 import 'sales_history_screen.dart';
@@ -131,121 +132,175 @@ class _HomeScreenState extends State<HomeScreen> {
             width: double.maxFinite,
             child: StreamBuilder<List<InventoryItem>>(
               stream: _firestoreService.getInventoryStream(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              builder: (context, inventorySnapshot) {
+                if (!inventorySnapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                // Filter only ACTIVE items that track production (>0)
-                final trackedItems = snapshot.data!.where((i) => i.isActive && (i.initialStock > 0 || i.type == 'taco')).toList();
+                return FutureBuilder<List<OrderModel>>(
+                  future: _firestoreService.getTodaysSales(),
+                  builder: (context, salesSnapshot) {
+                    if (salesSnapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-                if (trackedItems.isEmpty) return const Text("No hay items con seguimiento de producción.");
+                    final todaysOrders = salesSnapshot.data ?? [];
+                    final items = inventorySnapshot.data!;
 
-                // Calculate Grand Totals
-                int totalAvailable = 0;
-                int totalConsumed = 0;
-                int totalProduced = 0;
+                    // Filter only ACTIVE items that track production (>0)
+                    final trackedItems = items.where((i) => i.isActive && (i.initialStock > 0 || i.type == 'taco')).toList();
 
-                for (var item in trackedItems) {
-                  totalAvailable += item.currentStock; // UPDATED to use currentStock
-                  totalProduced += item.initialStock;
-                  totalConsumed += (item.initialStock - item.currentStock);
-                }
+                    if (trackedItems.isEmpty) return const Text("No hay items con seguimiento de producción.");
 
-                double totalProgress = totalProduced > 0 ? (totalAvailable / totalProduced).clamp(0.0, 1.0) : 0.0;
+                    // Calculate Consumed Quantities from Actual Sales
+                    Map<String, int> consumedCounts = {};
+                    for (var order in todaysOrders) {
+                      if (order.people.isNotEmpty) {
+                         order.people.forEach((_, person) {
+                           for (var item in person.items) {
+                              int served = item.extras['served'] ?? 0;
+                              if (item.name == 'Desechables') served = item.quantity;
+                              if (served > 0) {
+                                consumedCounts[item.name] = (consumedCounts[item.name] ?? 0) + served;
+                              }
+                           }
+                         });
+                      } else {
+                         order.tacoCounts.forEach((name, qty) {
+                            consumedCounts[name] = (consumedCounts[name] ?? 0) + (qty as num).toInt();
+                         });
+                         order.simpleExtraCounts.forEach((name, qty) {
+                            consumedCounts[name] = (consumedCounts[name] ?? 0) + (qty as num).toInt();
+                         });
+                         order.sodaCounts.forEach((name, temps) {
+                            int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+                            if (qty > 0) {
+                              consumedCounts[name] = (consumedCounts[name] ?? 0) + qty;
+                            }
+                         });
+                      }
+                    }
 
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // List of Individual Items
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: trackedItems.length,
-                        itemBuilder: (context, index) {
-                          final item = trackedItems[index];
-                          // Use currentStock logic
-                          int consumed = item.initialStock - item.currentStock;
-                          double progress = item.initialStock > 0 ? (item.currentStock / item.initialStock).clamp(0.0, 1.0) : 0.0;
+                    // Calculate Grand Totals based on Real Consumption
+                    int totalProduced = 0;
+                    int totalConsumed = 0;
+                    int totalAvailable = 0;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    for (var item in trackedItems) {
+                      totalProduced += item.initialStock;
+                      int consumed = consumedCounts[item.name] ?? 0;
+                      totalConsumed += consumed;
+                      // Actual remaining should ideally be what's left based on initial - sold
+                      totalAvailable += (item.initialStock > 0 ? (item.initialStock - consumed) : item.currentStock);
+                    }
+
+                    double totalProgress = totalProduced > 0 ? (totalConsumed / totalProduced).clamp(0.0, 1.0) : 0.0;
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // List of Individual Items
+                        Flexible(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: trackedItems.length,
+                            itemBuilder: (context, index) {
+                              final item = trackedItems[index];
+
+                              int consumed = consumedCounts[item.name] ?? 0;
+                              int remaining = item.initialStock - consumed;
+                              if(remaining < 0 && item.initialStock == 0) remaining = item.currentStock; // fallback for non tracked zeros
+
+                              double progress = item.initialStock > 0 ? (consumed / item.initialStock).clamp(0.0, 1.0) : 0.0;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(item.name, style: const TextStyle(fontWeight: FontWeight.w600, color: kTextColor)),
-                                    Text(
-                                        "$consumed / ${item.initialStock} Vendidos",
-                                        style: const TextStyle(fontSize: 12, color: Colors.grey)
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(item.name, style: const TextStyle(fontWeight: FontWeight.w600, color: kTextColor)),
+                                        Row(
+                                          children: [
+                                             Text(
+                                                "$consumed Vendidos",
+                                                style: const TextStyle(fontSize: 12, color: Colors.grey)
+                                             ),
+                                             const SizedBox(width: 8),
+                                             Text(
+                                                "($remaining left)",
+                                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: kAccentColor)
+                                             ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
+                                    const SizedBox(height: 4),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: LinearProgressIndicator(
+                                        value: progress,
+                                        backgroundColor: Colors.grey[300],
+                                        color: remaining < (item.initialStock * 0.2) ? Colors.redAccent : kAccentColor,
+                                        minHeight: 6,
+                                      ),
+                                    )
                                   ],
                                 ),
-                                const SizedBox(height: 4),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: LinearProgressIndicator(
-                                    value: progress,
-                                    backgroundColor: Colors.grey[300],
-                                    // Use currentStock for color logic
-                                    color: item.currentStock < (item.initialStock * 0.2) ? Colors.redAccent : kAccentColor,
-                                    minHeight: 6,
-                                  ),
-                                )
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                              );
+                            },
+                          ),
+                        ),
 
-                    const Divider(height: 30, color: kShadowColor),
+                        const Divider(height: 30, color: kShadowColor),
 
-                    // --- GRAND TOTAL SUMMARY ---
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                          color: kAccentColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: kAccentColor.withOpacity(0.3))
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        // --- GRAND TOTAL SUMMARY ---
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                              color: kAccentColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: kAccentColor.withOpacity(0.3))
+                          ),
+                          child: Column(
                             children: [
-                              const Text("PRODUCIDOS:", style: TextStyle(fontWeight: FontWeight.bold, color: kTextColor, fontSize: 12)),
-                              Text("$totalProduced", style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.grey, fontSize: 16)),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("PRODUCIDOS:", style: TextStyle(fontWeight: FontWeight.bold, color: kTextColor, fontSize: 12)),
+                                  Text("$totalProduced", style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.grey, fontSize: 16)),
+                                ],
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("VENDIDOS:", style: TextStyle(fontWeight: FontWeight.bold, color: kTextColor, fontSize: 12)),
+                                  Text("$totalConsumed", style: const TextStyle(fontWeight: FontWeight.w900, color: kTextColor, fontSize: 16)),
+                                ],
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("DISPONIBLES:", style: TextStyle(fontWeight: FontWeight.bold, color: kTextColor, fontSize: 12)),
+                                  Text("$totalAvailable", style: const TextStyle(fontWeight: FontWeight.w900, color: kAccentColor, fontSize: 16)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(5),
+                                child: LinearProgressIndicator(
+                                  value: totalProgress,
+                                  backgroundColor: Colors.grey[300],
+                                  color: kAccentColor,
+                                  minHeight: 10,
+                                ),
+                              ),
                             ],
                           ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("VENDIDOS:", style: TextStyle(fontWeight: FontWeight.bold, color: kTextColor, fontSize: 12)),
-                              Text("$totalConsumed", style: const TextStyle(fontWeight: FontWeight.w900, color: kTextColor, fontSize: 16)),
-                            ],
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("DISPONIBLES:", style: TextStyle(fontWeight: FontWeight.bold, color: kTextColor, fontSize: 12)),
-                              Text("$totalAvailable", style: const TextStyle(fontWeight: FontWeight.w900, color: kAccentColor, fontSize: 16)),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(5),
-                            child: LinearProgressIndicator(
-                              value: totalProgress,
-                              backgroundColor: Colors.grey[300],
-                              color: kAccentColor,
-                              minHeight: 10,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  ],
+                        )
+                      ],
+                    );
+                  }
                 );
               },
             ),

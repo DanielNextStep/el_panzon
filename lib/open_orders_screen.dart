@@ -14,6 +14,23 @@ class OpenOrdersScreen extends StatefulWidget {
 }
 
 class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
+  bool _isPendingUndo = false;
+
+  void _toggleUndoMode() {
+    setState(() {
+      _isPendingUndo = !_isPendingUndo;
+    });
+    if (_isPendingUndo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Toca un item servido para deshacerlo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -51,7 +68,12 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
                           padding: EdgeInsets.only(bottom: 10, left: 5),
                           child: Text("PENDIENTES", style: TextStyle(color: kAccentColor, fontWeight: FontWeight.bold, fontSize: 16)),
                         ),
-                        ...pendingOrders.map((order) => _OrderKitchenCard(order: order, key: ValueKey(order.id))),
+                        ...pendingOrders.map((order) => _OrderKitchenCard(
+                          order: order, 
+                          isPendingUndo: _isPendingUndo, 
+                          onUndoToggledOff: () => setState(() => _isPendingUndo = false),
+                          key: ValueKey(order.id)
+                        )),
                       ] else if (completedOrders.isNotEmpty) 
                          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("Todo al día", style: TextStyle(color: Colors.grey)))),
 
@@ -63,7 +85,13 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
                           padding: EdgeInsets.only(top: 10, bottom: 10, left: 5),
                           child: Text("COMPLETADOS / SURTIDOS", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
                         ),
-                        ...completedOrders.map((order) => _OrderKitchenCard(order: order, key: ValueKey(order.id), isInitiallyExpanded: false)),
+                        ...completedOrders.map((order) => _OrderKitchenCard(
+                          order: order, 
+                          isPendingUndo: _isPendingUndo, 
+                          onUndoToggledOff: () => setState(() => _isPendingUndo = false),
+                          key: ValueKey(order.id), 
+                          isInitiallyExpanded: false
+                        )),
                         const SizedBox(height: 40),
                       ],
                     ],
@@ -92,10 +120,17 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
             ),
           ),
           const Text(
-            'open_orders_screen.dart',
+            'Cocina',
             style: TextStyle(color: kTextColor, fontSize: 22, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(width: 44),
+          IconButton(
+            onPressed: _toggleUndoMode,
+            icon: Icon(Icons.undo, color: _isPendingUndo ? Colors.orange : Colors.grey.withOpacity(0.5)),
+            tooltip: 'Deshacer último servicio',
+            style: IconButton.styleFrom(
+              backgroundColor: _isPendingUndo ? Colors.orange.withOpacity(0.2) : Colors.transparent,
+            ),
+          )
         ],
       ),
     );
@@ -105,10 +140,14 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
 class _OrderKitchenCard extends StatefulWidget {
   final OrderModel order;
   final bool isInitiallyExpanded;
+  final bool isPendingUndo;
+  final VoidCallback onUndoToggledOff;
   
   const _OrderKitchenCard({
     required this.order, 
     this.isInitiallyExpanded = true,
+    this.isPendingUndo = false,
+    required this.onUndoToggledOff,
     super.key
   });
 
@@ -384,26 +423,44 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
                               return const DataCell(Center(child: Text("1", style: TextStyle(color: Colors.grey, fontSize: 12))));
                           }
 
+                          // Render cell based on state
+                          bool isUndoMode = widget.isPendingUndo && served > 0; // Only highlight items that CAN be undone
+                          
+                          Color borderColor;
+                          Color bgColor;
+                          Color textColor;
+                          VoidCallback? onTapAction;
+
+                          if (isUndoMode) {
+                              // UNDO MODE
+                              borderColor = Colors.orange;
+                              bgColor = Colors.orange.withOpacity(0.1);
+                              textColor = Colors.orange;
+                              onTapAction = () async {
+                                  await _undoItem(context, pId, itemIndex, foundItem!.name);
+                              };
+                          } else {
+                              // NORMAL MODE
+                              borderColor = isItemDone ? Colors.green.withOpacity(0.3) : kAccentColor;
+                              bgColor = isItemDone ? Colors.green.withOpacity(0.1) : kAccentColor.withOpacity(0.1);
+                              textColor = isItemDone ? Colors.green : kAccentColor;
+                              onTapAction = isItemDone ? null : () => _serveItem(pId, itemIndex, foundItem!.name);
+                          }
+
                           return DataCell(
                             Center(
                               child: InkWell(
-                                onTap: isItemDone ? null : () => _serveItem(pId, itemIndex, foundItem!.name),
+                                onTap: onTapAction,
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
-                                      color: isItemDone ? Colors.green.withOpacity(0.1) : kAccentColor.withOpacity(0.1),
+                                      color: bgColor,
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                          color: isItemDone ? Colors.green.withOpacity(0.3) : kAccentColor,
-                                          width: 1
-                                      )
+                                      border: Border.all(color: borderColor, width: 1)
                                   ),
                                   child: Text(
                                     displayText,
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isItemDone ? Colors.green : kAccentColor
-                                    ),
+                                    style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
                                   ),
                                 ),
                               ),
@@ -425,12 +482,53 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
 
   Future<void> _serveItem(String personId, int itemIndex, String itemName) async {
     HapticFeedback.lightImpact();
-    // Calls the updated service which now serves the FULL remaining quantity
     await FirestoreService().serveItemAndDeductStock(
       orderId: widget.order.id!,
       personId: personId,
       itemIndex: itemIndex,
       itemName: itemName,
     );
+  }
+
+  Future<void> _undoItem(BuildContext context, String personId, int itemIndex, String itemName) async {
+    // Show confirmation dialog before undoing
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: kBackgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: Row(
+          children: const [
+            Icon(Icons.undo, color: Colors.orange),
+            SizedBox(width: 10),
+            Text("¿Deshacer acción?", style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text("¿Deseas descontar 1 unidad servida de:\n$itemName?", style: const TextStyle(color: kTextColor, fontSize: 16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancelar", style: TextStyle(color: Colors.grey, fontSize: 16)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Deshacer", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      HapticFeedback.heavyImpact();
+      await FirestoreService().undoServeItemAndReturnStock(
+        orderId: widget.order.id!,
+        personId: personId,
+        itemIndex: itemIndex,
+        itemName: itemName,
+      );
+      // Automatically turn off undo mode after one successful undo
+      widget.onUndoToggledOff();
+    }
   }
 }

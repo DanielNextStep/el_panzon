@@ -26,6 +26,10 @@ class FirestoreService {
     await _inventoryCollection.doc(item.id).update(item.toMap());
   }
 
+  Future<void> addInventoryItem(InventoryItem item) async {
+    await _inventoryCollection.add(item.toMap());
+  }
+
   Future<void> initializeDefaultInventoryIfEmpty() async {
     final snapshot = await _inventoryCollection.limit(1).get();
     if (snapshot.docs.isEmpty) {
@@ -143,6 +147,64 @@ class FirestoreService {
 
           if (currentStock >= remainingToServe && initialStock > 0) {
             transaction.update(inventoryRef!, {'currentStock': currentStock - remainingToServe});
+          }
+        }
+      }
+    });
+  }
+
+  // --- NEW UNDO FUNCTIONALITY ---
+  Future<void> undoServeItemAndReturnStock({
+    required String orderId,
+    required String personId,
+    required int itemIndex,
+    required String itemName,
+  }) async {
+    final invQuery = await _inventoryCollection.where('name', isEqualTo: itemName).limit(1).get();
+    DocumentReference? inventoryRef;
+    if (invQuery.docs.isNotEmpty) {
+      inventoryRef = invQuery.docs.first.reference;
+    }
+
+    return _db.runTransaction((transaction) async {
+      final orderRef = _ordersRef.doc(orderId);
+      final orderSnapshot = await transaction.get(orderRef);
+
+      DocumentSnapshot? invSnapshot;
+      if (inventoryRef != null) {
+        invSnapshot = await transaction.get(inventoryRef);
+      }
+
+      if (!orderSnapshot.exists) return;
+
+      final order = OrderModel.fromSnapshot(orderSnapshot);
+      final person = order.people[personId];
+      if (person == null) return;
+      if (itemIndex >= person.items.length) return;
+
+      final item = person.items[itemIndex];
+      int currentServed = item.extras['served'] ?? 0;
+
+      // Only undo if there is at least 1 served item
+      if (currentServed > 0) {
+        Map<String, dynamic> newExtras = Map.from(item.extras);
+        newExtras['served'] = currentServed - 1; // Decrement by 1
+
+        List<Map<String, dynamic>> updatedItems = person.items.map((i) => i.toMap()).toList();
+        updatedItems[itemIndex]['extras'] = newExtras;
+
+        transaction.update(orderRef, {
+          'people.$personId.items': updatedItems
+        });
+
+        // Return 1 unit back to Inventory (if it's being tracked)
+        if (invSnapshot != null && invSnapshot.exists) {
+          final data = invSnapshot.data() as Map<String, dynamic>;
+          int currentStock = data['currentStock'] ?? 0;
+          int initialStock = data['initialStock'] ?? 0;
+
+          if (initialStock > 0) {
+            transaction.update(inventoryRef!, {'currentStock': currentStock + 1});
           }
         }
       }

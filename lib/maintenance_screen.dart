@@ -61,10 +61,121 @@ class MaintenanceScreen extends StatelessWidget {
     );
   }
 
+  void _showAddItemDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final priceController = TextEditingController();
+    final stockController = TextEditingController();
+    String selectedType = 'taco';
+
+    showDialog(
+      context: context,
+      builder: (context) {
+         return StatefulBuilder(
+           builder: (context, setState) {
+             return AlertDialog(
+               backgroundColor: kBackgroundColor,
+               title: const Text("Nuevo Item", style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold)),
+               content: SingleChildScrollView(
+                 child: Column(
+                   mainAxisSize: MainAxisSize.min,
+                   children: [
+                     NeumorphicContainer(
+                       isInner: true,
+                       padding: const EdgeInsets.symmetric(horizontal: 15),
+                       child: TextField(
+                         controller: nameController,
+                         decoration: const InputDecoration(border: InputBorder.none, hintText: "Nombre"),
+                       ),
+                     ),
+                     const SizedBox(height: 15),
+                     NeumorphicContainer(
+                       isInner: true,
+                       padding: const EdgeInsets.symmetric(horizontal: 15),
+                       child: DropdownButtonHideUnderline(
+                         child: DropdownButton<String>(
+                           value: selectedType,
+                           isExpanded: true,
+                           dropdownColor: kBackgroundColor,
+                           items: const [
+                             DropdownMenuItem(value: 'taco', child: Text("Taco")),
+                             DropdownMenuItem(value: 'soda', child: Text("Bebida")),
+                             DropdownMenuItem(value: 'extra', child: Text("Postre / Extra")),
+                           ],
+                           onChanged: (val) {
+                             if (val != null) setState(() => selectedType = val);
+                           },
+                         ),
+                       ),
+                     ),
+                     const SizedBox(height: 15),
+                     NeumorphicContainer(
+                       isInner: true,
+                       padding: const EdgeInsets.symmetric(horizontal: 15),
+                       child: TextField(
+                         controller: priceController,
+                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                         decoration: const InputDecoration(border: InputBorder.none, hintText: "Precio"),
+                       ),
+                     ),
+                     const SizedBox(height: 15),
+                     NeumorphicContainer(
+                       isInner: true,
+                       padding: const EdgeInsets.symmetric(horizontal: 15),
+                       child: TextField(
+                         controller: stockController,
+                         keyboardType: TextInputType.number,
+                         decoration: const InputDecoration(border: InputBorder.none, hintText: "Stock Inicial (Opcional)"),
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+               actions: [
+                 TextButton(child: const Text("Cancelar", style: TextStyle(color: Colors.grey)), onPressed: () => Navigator.pop(context)),
+                 ElevatedButton(
+                   style: ElevatedButton.styleFrom(backgroundColor: kAccentColor),
+                   child: const Text("Guardar", style: TextStyle(color: Colors.white)),
+                   onPressed: () async {
+                     final name = nameController.text.trim();
+                     if (name.isEmpty) return;
+                     final price = double.tryParse(priceController.text) ?? 0.0;
+                     final stock = int.tryParse(stockController.text) ?? 0;
+
+                     final newItem = InventoryItem(
+                       id: '',
+                       name: name,
+                       type: selectedType,
+                       price: price,
+                       currentStock: stock,
+                       initialStock: stock,
+                       isActive: true,
+                     );
+                     
+                     await FirestoreService().addInventoryItem(newItem);
+                     if (context.mounted) {
+                       Navigator.pop(context);
+                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$name agregado al menú", style: const TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+                     }
+                   },
+                 )
+               ],
+             );
+           }
+         );
+      }
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kBackgroundColor,
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: kAccentColor,
+        onPressed: () => _showAddItemDialog(context),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text("Nuevo Item", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
       body: SafeArea(
         child: Column(
           children: [
