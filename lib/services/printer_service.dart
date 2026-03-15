@@ -81,6 +81,7 @@ class PrinterService {
           bool hasItems = person.items.any((i) => (i.extras['served'] ?? 0) > 0 || i.name == 'Desechables');
           if (hasItems) {
             bytes.addAll(_utf8("-- ${person.name} --\n"));
+            double personSubtotal = 0.0;
             for (var item in person.items) {
                // Only print served items (Handle Desechables specially)
                int served = item.extras['served'] ?? 0;
@@ -89,9 +90,19 @@ class PrinterService {
                if (served > 0) {
                  double price = priceMap[item.name] ?? 0.0;
                  double lineTotal = price * served;
+                 personSubtotal += lineTotal;
                  bytes.addAll(_utf8(_formatLineItem(served, item.name, lineTotal)));
                }
             }
+            
+            // Print person subtotal
+            String subLabel = "Subtotal";
+            String subPrice = "\$${personSubtotal.toStringAsFixed(2)}";
+            int padding = 32 - subLabel.length - subPrice.length;
+            String spaces = padding > 0 ? " " * padding : " ";
+            bytes.addAll(_utf8("--------------------------------\n"));
+            bytes.addAll(_utf8("$subLabel$spaces$subPrice\n"));
+            
             bytes.addAll(_utf8("\n"));
           }
         });

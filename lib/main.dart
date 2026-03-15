@@ -135,49 +135,54 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, inventorySnapshot) {
                 if (!inventorySnapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                return FutureBuilder<List<OrderModel>>(
-                  future: _firestoreService.getTodaysSales(),
-                  builder: (context, salesSnapshot) {
-                    if (salesSnapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    final todaysOrders = salesSnapshot.data ?? [];
-                    final items = inventorySnapshot.data!;
-
-                    // Filter only ACTIVE items that track production (>0)
-                    final trackedItems = items.where((i) => i.isActive && (i.initialStock > 0 || i.type == 'taco')).toList();
-
-                    if (trackedItems.isEmpty) return const Text("No hay items con seguimiento de producción.");
-
-                    // Calculate Consumed Quantities from Actual Sales
-                    Map<String, int> consumedCounts = {};
-                    for (var order in todaysOrders) {
-                      if (order.people.isNotEmpty) {
-                         order.people.forEach((_, person) {
-                           for (var item in person.items) {
-                              int served = item.extras['served'] ?? 0;
-                              if (item.name == 'Desechables') served = item.quantity;
-                              if (served > 0) {
-                                consumedCounts[item.name] = (consumedCounts[item.name] ?? 0) + served;
-                              }
-                           }
-                         });
-                      } else {
-                         order.tacoCounts.forEach((name, qty) {
-                            consumedCounts[name] = (consumedCounts[name] ?? 0) + (qty as num).toInt();
-                         });
-                         order.simpleExtraCounts.forEach((name, qty) {
-                            consumedCounts[name] = (consumedCounts[name] ?? 0) + (qty as num).toInt();
-                         });
-                         order.sodaCounts.forEach((name, temps) {
-                            int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
-                            if (qty > 0) {
-                              consumedCounts[name] = (consumedCounts[name] ?? 0) + qty;
-                            }
-                         });
+                  return FutureBuilder<List<List<OrderModel>>>(
+                    future: Future.wait([
+                      _firestoreService.getTodaysSales(),
+                      _firestoreService.getAllActiveOrdersStream().first, // Fetch open orders too
+                    ]),
+                    builder: (context, salesSnapshot) {
+                      if (salesSnapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
                       }
-                    }
+
+                      final todaysOrders = salesSnapshot.data?[0] ?? [];
+                      final openOrders = salesSnapshot.data?[1] ?? [];
+                      final allRelevantOrders = [...todaysOrders, ...openOrders];
+                      final items = inventorySnapshot.data!;
+
+                      // Filter only ACTIVE items that track production (>0)
+                      final trackedItems = items.where((i) => i.isActive && (i.initialStock > 0 || i.type == 'taco')).toList();
+
+                      if (trackedItems.isEmpty) return const Text("No hay items con seguimiento de producción.");
+
+                      // Calculate Consumed Quantities from Actual Sales + Open Orders
+                      Map<String, int> consumedCounts = {};
+                      for (var order in allRelevantOrders) {
+                        if (order.people.isNotEmpty) {
+                           order.people.forEach((_, person) {
+                             for (var item in person.items) {
+                                int served = item.extras['served'] ?? 0;
+                                if (item.name == 'Desechables') served = item.quantity;
+                                if (served > 0) {
+                                  consumedCounts[item.name] = (consumedCounts[item.name] ?? 0) + served;
+                                }
+                             }
+                           });
+                        } else {
+                           order.tacoCounts.forEach((name, qty) {
+                              consumedCounts[name] = (consumedCounts[name] ?? 0) + (qty as num).toInt();
+                           });
+                           order.simpleExtraCounts.forEach((name, qty) {
+                              consumedCounts[name] = (consumedCounts[name] ?? 0) + (qty as num).toInt();
+                           });
+                           order.sodaCounts.forEach((name, temps) {
+                              int qty = (temps['Frío'] ?? 0) + (temps['Al Tiempo'] ?? 0);
+                              if (qty > 0) {
+                                consumedCounts[name] = (consumedCounts[name] ?? 0) + qty;
+                              }
+                           });
+                        }
+                      }
 
                     // Calculate Grand Totals based on Real Consumption
                     int totalProduced = 0;
