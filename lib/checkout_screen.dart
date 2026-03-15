@@ -57,7 +57,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           int served = item.extras['served'] ?? 0;
           if (item.name == 'Desechables') served = item.quantity; 
 
-          total += _getPrice(item.name) * served;
+          bool isGift = item.extras['isGift'] == true;
+          
+          if (!isGift) {
+            total += _getPrice(item.name) * served;
+          }
         }
       });
     } else {
@@ -274,22 +278,26 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ],
           ),
           const Divider(height: 10, thickness: 0.5),
-          ...servedItems.map((item) {
-             int served = item.extras['served'] ?? 0;
-             if (item.name == 'Desechables') served = item.quantity;
+           ...servedItems.map((item) {
+              int served = item.extras['served'] ?? 0;
+              if (item.name == 'Desechables') served = item.quantity;
+              
+              bool isGift = item.extras['isGift'] == true;
 
-             double subtotal = _getPrice(item.name) * served;
-             return Padding(
-               padding: const EdgeInsets.symmetric(vertical: 2),
-               child: Row(
-                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                 children: [
-                   Text("$served x ${item.name}", style: const TextStyle(fontSize: 14, color: kTextColor)),
-                   Text("\$${subtotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: kTextColor)),
-                 ],
-               ),
-             );
-          }),
+              double subtotal = isGift ? 0.0 : _getPrice(item.name) * served;
+              String displayName = isGift ? "(Regalo) ${item.name}" : item.name;
+              
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("$served x $displayName", style: TextStyle(fontSize: 14, color: isGift ? Colors.purple : kTextColor)),
+                    Text("\$${subtotal.toStringAsFixed(2)}", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: isGift ? Colors.purple : kTextColor)),
+                  ],
+                ),
+              );
+           }),
         ],
       ),
     );

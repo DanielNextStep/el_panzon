@@ -47,8 +47,10 @@ class _DailyClosureDialogState extends State<DailyClosureDialog> {
                 int served = item.extras['served'] ?? 0;
                 if (item.name == 'Desechables') served = item.quantity;
 
-                if (served > 0) {
-                   double price = item.name == 'Desechables' ? 2.0 : (priceMap[item.name] ?? 0.0);
+                 if (served > 0) {
+                   bool isGift = item.extras['isGift'] == true;
+                   
+                   double price = item.name == 'Desechables' ? 2.0 : (isGift ? 0.0 : (priceMap[item.name] ?? 0.0));
                    revenue += price * served;
                    
                    final invItem = items.firstWhere(

@@ -219,6 +219,48 @@ class FirestoreService {
     await _ordersRef.doc(order.id).delete();
   }
 
+  // --- NEW: GIFT LOGIC ---
+  Future<void> addGiftItemToOrder({
+    required String orderId,
+    required String personId,
+    required OrderItem giftItem,
+  }) async {
+    return _db.runTransaction((transaction) async {
+      final orderRef = _ordersRef.doc(orderId);
+      final orderSnapshot = await transaction.get(orderRef);
+
+      if (!orderSnapshot.exists) return;
+
+      final order = OrderModel.fromSnapshot(orderSnapshot);
+      final person = order.people[personId];
+      if (person == null) return;
+
+      // Ensure the isGift flag is set
+      Map<String, dynamic> newExtras = Map.from(giftItem.extras);
+      newExtras['isGift'] = true;
+      newExtras['served'] = 0; // Starts unserved
+
+      final newItem = OrderItem(
+        name: giftItem.name,
+        quantity: giftItem.quantity,
+        extras: newExtras,
+      );
+
+      // Add to person's items
+      List<Map<String, dynamic>> updatedItems = person.items.map((i) => i.toMap()).toList();
+      updatedItems.add(newItem.toMap());
+
+      transaction.update(orderRef, {
+        'people.$personId.items': updatedItems
+      });
+    });
+  }
+    Map<String, dynamic> salesData = order.toMap();
+    salesData['closedAt'] = FieldValue.serverTimestamp();
+    await _salesRef.add(salesData);
+    await _ordersRef.doc(order.id).delete();
+  }
+
   Stream<List<OrderModel>> getOrdersForTable(int tableNumber) {
     return _ordersRef
         .where('tableNumber', isEqualTo: tableNumber)

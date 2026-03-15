@@ -56,6 +56,9 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
                     return const Center(child: Text("No hay órdenes activas"));
                   }
 
+
+                  
+
                   final pendingOrders = allOrders.where((o) => !o.isFullyServed).toList();
                   final completedOrders = allOrders.where((o) => o.isFullyServed).toList();
 
@@ -133,6 +136,166 @@ class _OpenOrdersScreenState extends State<OpenOrdersScreen> {
           )
         ],
       ),
+    );
+  }
+}
+
+// --- NEW WIDGET: Gift Dialog ---
+class _GiftItemDialog extends StatefulWidget {
+  final OrderModel order;
+  const _GiftItemDialog({required this.order, super.key});
+
+  @override
+  State<_GiftItemDialog> createState() => _GiftItemDialogState();
+}
+
+class _GiftItemDialogState extends State<_GiftItemDialog> {
+  final FirestoreService _service = FirestoreService();
+  String? _selectedPersonId;
+  String? _selectedItemName;
+  int _quantity = 1;
+  List<String> _inventoryItemNames = [];
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to first person if available
+    if (widget.order.people.isNotEmpty) {
+      _selectedPersonId = widget.order.people.keys.first;
+    }
+    _loadInventory();
+  }
+
+  void _loadInventory() async {
+    final items = await _service.getInventoryStream().first;
+    if (mounted) {
+      setState(() {
+        // filter active items
+        _inventoryItemNames = items.where((i) => i.isActive).map((i) => i.name).toList();
+        _inventoryItemNames.sort();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.order.people.isEmpty) {
+      return const AlertDialog(
+        backgroundColor: kBackgroundColor,
+        content: Text("No se pueden agregar regalos a este formato de orden.", style: TextStyle(color: kTextColor)),
+      );
+    }
+
+    return AlertDialog(
+      backgroundColor: kBackgroundColor,
+      title: Row(
+        children: const [
+          Icon(Icons.card_giftcard, color: Colors.purple),
+          SizedBox(width: 10),
+          Text("Agregar Regalo", style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Selecciona a quién se le regalará:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 5),
+          NeumorphicContainer(
+            isInner: true,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedPersonId,
+                isExpanded: true,
+                dropdownColor: kBackgroundColor,
+                items: widget.order.people.entries.map((e) {
+                  return DropdownMenuItem(
+                    value: e.key,
+                    child: Text(e.value.name, style: const TextStyle(color: kTextColor)),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedPersonId = val),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 15),
+          
+          const Text("Artículo a regalar:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 5),
+          NeumorphicContainer(
+            isInner: true,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedItemName,
+                hint: const Text("Selecciona un artículo", style: TextStyle(color: Colors.grey)),
+                isExpanded: true,
+                dropdownColor: kBackgroundColor,
+                items: _inventoryItemNames.map((name) {
+                  return DropdownMenuItem(
+                    value: name,
+                    child: Text(name, style: const TextStyle(color: kTextColor)),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedItemName = val),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 15),
+
+          const Text("Cantidad:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 5),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                icon: const Icon(Icons.remove_circle_outline, color: kAccentColor),
+              ),
+              Text("$_quantity", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kTextColor)),
+              IconButton(
+                onPressed: () => setState(() => _quantity++),
+                icon: const Icon(Icons.add_circle_outline, color: kAccentColor),
+              ),
+            ],
+          )
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+          onPressed: (_selectedPersonId == null || _selectedItemName == null) ? null : () async {
+            final orderItem = OrderItem(
+              name: _selectedItemName!,
+              quantity: _quantity,
+            );
+            
+            await _service.addGiftItemToOrder(
+              orderId: widget.order.id!,
+              personId: _selectedPersonId!,
+              giftItem: orderItem,
+            );
+            
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("Regalo agregado a ${widget.order.people[_selectedPersonId!]?.name}"),
+                  backgroundColor: Colors.purple,
+                )
+              );
+            }
+          },
+          child: const Text("Dar Regalo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        )
+      ],
     );
   }
 }
@@ -314,8 +477,27 @@ class _OrderKitchenCardState extends State<_OrderKitchenCard> {
                             const SizedBox(width: 5),
                             Text(_timeElapsed, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
                             const SizedBox(width: 15),
-                            // Collapse Icon
+                            // Collarse Icon
                             Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: kAccentColor),
+                            const SizedBox(width: 15),
+                            // Gift Icon
+                            if (widget.order.people.isNotEmpty)
+                              GestureDetector(
+                                onTap: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => _GiftItemDialog(order: widget.order),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.purple.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.card_giftcard, color: Colors.purple, size: 20),
+                                ),
+                              ),
                           ],
                         )
                       ],

@@ -86,12 +86,16 @@ class PrinterService {
                // Only print served items (Handle Desechables specially)
                int served = item.extras['served'] ?? 0;
                if (item.name == 'Desechables') served = item.quantity;
+               
+               bool isGift = item.extras['isGift'] == true;
 
                if (served > 0) {
-                 double price = priceMap[item.name] ?? 0.0;
+                 double price = isGift ? 0.0 : (priceMap[item.name] ?? 0.0);
                  double lineTotal = price * served;
                  personSubtotal += lineTotal;
-                 bytes.addAll(_utf8(_formatLineItem(served, item.name, lineTotal)));
+                 
+                 String displayName = isGift ? "(Regalo) ${item.name}" : item.name;
+                 bytes.addAll(_utf8(_formatLineItem(served, displayName, lineTotal)));
                }
             }
             
