@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'shared_styles.dart';
 import 'services/firestore_service.dart';
 import 'services/printer_service.dart';
@@ -252,6 +253,38 @@ class MaintenanceScreen extends StatelessWidget {
     );
   }
 
+  void _showAboutDialog(BuildContext context) async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: kBackgroundColor,
+            title: const Text("Acerca de", style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.restaurant_menu, size: 50, color: kAccentColor),
+                const SizedBox(height: 15),
+                const Text("Órdenes El Panzón", style: TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                Text("Versión: ${packageInfo.version} (${packageInfo.buildNumber})", style: const TextStyle(color: Colors.grey)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cerrar", style: TextStyle(color: Colors.grey)),
+              ),
+            ],
+          );
+        }
+      );
+    }
+  }
+
   Widget _buildAppBar(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
@@ -314,6 +347,11 @@ class MaintenanceScreen extends StatelessWidget {
           // -----------------------
           
           IconButton(icon: const Icon(Icons.print, color: kAccentColor), tooltip: "Configurar Impresora", onPressed: () => _showPrinterConfig(context)),
+          IconButton(
+            icon: const Icon(Icons.info_outline, color: kAccentColor),
+            tooltip: "Acerca de",
+            onPressed: () => _showAboutDialog(context),
+          ),
           IconButton(
             icon: const Icon(Icons.cloud_download_outlined, color: kAccentColor),
             tooltip: "Restaurar Menú",

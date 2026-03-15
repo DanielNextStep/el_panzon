@@ -1,7 +1,7 @@
 name: ordenes_elpanzon
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -16,6 +16,7 @@ dependencies:
 
   # Pinning to 4.1.7 specifically to avoid 4.2.0+ dependency issues
   image: 4.1.7
+  package_info_plus: ^9.0.0
 
 dev_dependencies:
   flutter_test:

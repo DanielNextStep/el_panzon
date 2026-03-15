@@ -64,12 +64,51 @@ class SalesHistoryScreen extends StatelessWidget {
                     );
                   }
 
-                  return ListView.builder(
+                  // --- GROUPING LOGIC ---
+                  final now = DateTime.now();
+                  final todayStart = DateTime(now.year, now.month, now.day);
+                  
+                  final todaysSales = sales.where((s) => s.timestamp.isAfter(todayStart) || s.timestamp.isAtSameMomentAs(todayStart)).toList();
+                  final pastSales = sales.where((s) => s.timestamp.isBefore(todayStart)).toList();
+                  
+                  Map<String, List<OrderModel>> groupedPastSales = {};
+                  for (var sale in pastSales) {
+                    final monthYear = DateFormat('MMMM yyyy', 'es').format(sale.timestamp);
+                    // Capitalize first letter of month
+                    final formattedMonthYear = monthYear[0].toUpperCase() + monthYear.substring(1);
+                    
+                    if (!groupedPastSales.containsKey(formattedMonthYear)) {
+                      groupedPastSales[formattedMonthYear] = [];
+                    }
+                    groupedPastSales[formattedMonthYear]!.add(sale);
+                  }
+
+                  return ListView(
                     padding: const EdgeInsets.all(20),
-                    itemCount: sales.length,
-                    itemBuilder: (context, index) {
-                      return _SaleCard(order: sales[index]);
-                    },
+                    children: [
+                      if (todaysSales.isNotEmpty) ...[
+                        const Padding(
+                          padding: EdgeInsets.only(left: 10, bottom: 10),
+                          child: Text("Hoy", style: TextStyle(color: kAccentColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                        ),
+                        ...todaysSales.map((sale) => _SaleCard(order: sale)),
+                        const SizedBox(height: 20),
+                      ],
+                      
+                      ...groupedPastSales.entries.map((entry) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(left: 10, bottom: 10, top: 10),
+                              child: Text(entry.key, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 18)),
+                            ),
+                            ...entry.value.map((sale) => _SaleCard(order: sale)),
+                            const SizedBox(height: 20),
+                          ],
+                        );
+                      }),
+                    ],
                   );
                 },
               ),
