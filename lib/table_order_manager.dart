@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'shared_styles.dart';
 import 'order_screen.dart';
 import 'models/order_model.dart';
@@ -391,6 +392,77 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
       );
   }
 
+  Future<void> _sendWhatsAppConfirmation(OrderModel order) async {
+    HapticFeedback.lightImpact();
+    // 1. Check if the order has anything
+    if (order.people.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Añade productos primero.", style: TextStyle(color: Colors.white)), backgroundColor: Colors.orange));
+      return;
+    }
+
+    // 2. Generate Message
+    StringBuffer sb = StringBuffer();
+    sb.writeln("¡Hola${order.customerName != null ? ' ${order.customerName}' : ''}! 👋");
+    sb.writeln("Aquí tienes el resumen de tu pedido en *El Panzón*:\n");
+
+    // 3. Iterate people
+    bool firstPerson = true; // Use this to avoid extra dashes at the start
+    order.people.forEach((_, person) {
+      if (!firstPerson) sb.writeln("\n------------------\n");
+      sb.writeln("*${person.name}:*");
+      double subtotal = 0;
+      for (var item in person.items) {
+        double price = _getPrice(item.name);
+        double totalItem = price * item.quantity;
+        subtotal += totalItem;
+
+        // Skip Desechables if cost is 0 and we are not charging it, or just show it depending on preference.
+        // We will show it if quantity > 0 to be transparent.
+        if (item.name == 'Desechables' && price == 0) continue; 
+        
+        bool isGift = item.extras['isGift'] == true;
+        if (isGift) {
+          sb.writeln("- ${item.quantity} x ${item.name} *(Regalo)*");
+        } else {
+          sb.writeln("- ${item.quantity} x ${item.name} (\$${totalItem.toStringAsFixed(2)})");
+        }
+      }
+      sb.writeln("  _Subtotal: \$${subtotal.toStringAsFixed(2)}_");
+      firstPerson = false;
+    });
+
+    // 4. Grand Total
+    double grandTotal = _calculateGrandTotal(order);
+    sb.writeln("\n=====================");
+    sb.writeln("*Total a pagar:* \$${grandTotal.toStringAsFixed(2)}");
+    sb.writeln("=====================\n");
+    sb.writeln("¡Gracias por tu preferencia!");
+
+    // 5. Open WhatsApp using url_launcher
+    final String encodedMsg = Uri.encodeComponent(sb.toString());
+    
+    // We use wa.me/ sending to empty phone number so it asks the user to pick a contact
+    // Or whatsapp://send?text=
+    final Uri whatsappUrl = Uri.parse("whatsapp://send?text=$encodedMsg");
+    final Uri fallbackWebUrl = Uri.parse("https://api.whatsapp.com/send?text=$encodedMsg");
+
+    try {
+      if (await canLaunchUrl(whatsappUrl)) {
+        await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
+      } else if (await canLaunchUrl(fallbackWebUrl)) {
+        await launchUrl(fallbackWebUrl, mode: LaunchMode.externalApplication);
+      } else {
+         if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No se pudo abrir WhatsApp. Verifica que esté instalado.")));
+         }
+      }
+    } catch (e) {
+      if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: \$e")));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     bool isToGo = widget.tableNumber == 0;
@@ -455,11 +527,17 @@ class _TableOrderManagerScreenState extends State<TableOrderManagerScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                                 Text(title, style: const TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.bold)),
-                                if (isToGo && activeOrder != null) 
+                                if (isToGo && activeOrder != null) ...[
                                     IconButton(
-                                        icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
+                                        icon: const Icon(Icons.edit, size: 24, color: Colors.grey),
                                         onPressed: () => _editMainOrderName(activeOrder),
+                                    ),
+                                    IconButton(
+                                        icon: const Icon(Icons.chat, size: 24, color: Colors.green),
+                                        onPressed: () => _sendWhatsAppConfirmation(activeOrder),
+                                        tooltip: "Enviar Resumen por WhatsApp",
                                     )
+                                ]
                             ],
                         ),
                         if (isToGo && activeOrder != null)
