@@ -30,29 +30,26 @@ class NeumorphicContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (isInner) {
+      return CustomPaint(
+        painter: InnerShadowPainter(borderRadius, isCircle, color ?? kBackgroundColor),
+        child: Padding(
+          padding: padding,
+          child: child,
+        ),
+      );
+    }
+
     final double blurRadius = 10.0;
     final Offset offset = const Offset(5, 5);
 
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        // If isInner, we use a gradient to simulate depth. If not, plain background.
-        color: isInner ? null : (color ?? kBackgroundColor),
+        color: color ?? kBackgroundColor,
         shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: isCircle ? null : BorderRadius.circular(borderRadius),
-        gradient: isInner
-            ? LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            kShadowColor.withOpacity(0.5), // Darker inner shadow top-left
-            kHighlightColor.withOpacity(0.5), // Lighter highlight bottom-right
-          ],
-        )
-            : null,
-        boxShadow: isInner
-            ? null // No outer shadows when "pressed" (inner state)
-            : [
+        boxShadow: [
           // Outer Shadow (Regular)
           BoxShadow(
             color: kShadowColor.withOpacity(0.5),
@@ -69,4 +66,57 @@ class NeumorphicContainer extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class InnerShadowPainter extends CustomPainter {
+  final double borderRadius;
+  final bool isCircle;
+  final Color backgroundColor;
+
+  InnerShadowPainter(this.borderRadius, this.isCircle, this.backgroundColor);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Rect rect = Rect.fromLTWH(0, 0, size.width, size.height);
+    RRect rrect = isCircle 
+        ? RRect.fromRectAndRadius(rect, Radius.circular(size.height / 2)) 
+        : RRect.fromRectAndRadius(rect, Radius.circular(borderRadius));
+
+    // Fill background
+    canvas.drawRRect(rrect, Paint()..color = backgroundColor);
+
+    canvas.save();
+    canvas.clipRRect(rrect);
+
+    // Dark shadow (Top-Left)
+    Path darkPath = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(rect.inflate(30))
+      ..addRRect(rrect.shift(const Offset(5, 5)));
+
+    canvas.drawPath(
+      darkPath,
+      Paint()
+        ..color = kShadowColor.withOpacity(0.6)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    );
+
+    // Light shadow (Bottom-Right)
+    Path lightPath = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(rect.inflate(30))
+      ..addRRect(rrect.shift(const Offset(-5, -5)));
+
+    canvas.drawPath(
+      lightPath,
+      Paint()
+        ..color = kHighlightColor.withOpacity(1.0)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    );
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
