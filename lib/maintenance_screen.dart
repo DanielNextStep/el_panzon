@@ -287,19 +287,27 @@ class MaintenanceScreen extends StatelessWidget {
 
   Widget _buildAppBar(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
+      padding: const EdgeInsets.fromLTRB(15, 10, 10, 10),
       child: Row(
         children: [
           GestureDetector(
             onTap: () => Navigator.of(context).pop(),
-            child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(12), child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 20)),
+            child: const NeumorphicContainer(isCircle: true, padding: EdgeInsets.all(10), child: Icon(Icons.arrow_back_ios_new, color: kAccentColor, size: 18)),
           ),
-          const SizedBox(width: 20),
-          const Expanded(child: Text('Inventario', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700))),
+          const SizedBox(width: 15),
+          const Expanded(
+              child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text('Inventario', style: TextStyle(color: kTextColor, fontSize: 20, fontWeight: FontWeight.w700))
+              )
+          ),
           
           // --- Nuevo Día Button ---
           IconButton(
-            icon: const Icon(Icons.wb_sunny, color: Colors.orange),
+            icon: const Icon(Icons.wb_sunny, color: Colors.orange, size: 22),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
             tooltip: "Iniciar Nuevo Día",
             onPressed: () {
               showDialog(
@@ -332,10 +340,13 @@ class MaintenanceScreen extends StatelessWidget {
               );
             },
           ),
+          const SizedBox(width: 8),
           
           // --- Cierre de Día Button ---
           IconButton(
-             icon: const Icon(Icons.point_of_sale, color: Colors.green),
+             icon: const Icon(Icons.point_of_sale, color: Colors.green, size: 22),
+             padding: EdgeInsets.zero,
+             constraints: const BoxConstraints(),
              tooltip: "Cierre de Día",
              onPressed: () {
                 showDialog(
@@ -344,16 +355,30 @@ class MaintenanceScreen extends StatelessWidget {
                 );
              }
           ),
-          // -----------------------
+          const SizedBox(width: 8),
           
-          IconButton(icon: const Icon(Icons.print, color: kAccentColor), tooltip: "Configurar Impresora", onPressed: () => _showPrinterConfig(context)),
           IconButton(
-            icon: const Icon(Icons.info_outline, color: kAccentColor),
+             icon: const Icon(Icons.print, color: kAccentColor, size: 22), 
+             padding: EdgeInsets.zero,
+             constraints: const BoxConstraints(),
+             tooltip: "Configurar Impresora", 
+             onPressed: () => _showPrinterConfig(context)
+          ),
+          const SizedBox(width: 8),
+
+          IconButton(
+            icon: const Icon(Icons.info_outline, color: kAccentColor, size: 22),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
             tooltip: "Acerca de",
             onPressed: () => _showAboutDialog(context),
           ),
+          const SizedBox(width: 8),
+
           IconButton(
-            icon: const Icon(Icons.cloud_download_outlined, color: kAccentColor),
+            icon: const Icon(Icons.cloud_download_outlined, color: kAccentColor, size: 22),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
             tooltip: "Restaurar Menú",
             onPressed: () {
               FirestoreService().resetInventoryToDefaults(forceUpdate: true);
